@@ -279,7 +279,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
     </div>
   </div>
   <div class="card">
-    <h2>Próximos 15 dias</h2>
+    <h2>Vencidos e próximos 15 dias</h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Venc.</th><th>Tipo</th><th>Descrição</th><th class="num">Valor</th></tr></thead>
       <tbody id="tbody-proximos"></tbody>
@@ -949,13 +949,16 @@ function renderPainel(){
          <td class="num"><strong>${money(saldoConta(c.id))}</strong></td></tr>`).join('')+'</tbody></table></div>'
     : '<div class="empty"><strong>Nenhuma conta ainda</strong>Cadastre em Cadastros quando quiser. Dá para lançar títulos antes disso.</div>';
 
+  // Recorte real: o que já venceu e o que vence nos próximos 15 dias.
+  const limite=addDays(15);
   const prox=[...DB.Pagar.map(t=>({...t,_k:'Pagar'})),...DB.Receber.map(t=>({...t,_k:'Receber'}))]
-    .filter(t=>t.status==='Aberto').sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,12);
+    .filter(t=>t.status==='Aberto' && String(t.vencimento).slice(0,10) <= limite)
+    .sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
   $('tbody-proximos').innerHTML = prox.length ? prox.map(t=>
-    `<tr class="${vencido(t)?'late':''}"><td>${brDate(t.vencimento)}</td>
-     <td><span class="tag ${t._k==='Pagar'?'vencido':'baixado'}" style="background:none">${t._k==='Pagar'?'Pagar':'Receber'}</span></td>
+    `<tr class="${vencido(t)?'late':''}"><td>${brDate(t.vencimento)}${vencido(t)?' <span class="tag vencido">vencido</span>':''}</td>
+     <td>${t._k==='Pagar'?'Pagar':'Receber'}</td>
      <td>${esc(t.descricao)}</td><td class="num ${t._k==='Pagar'?'c-bad':'c-ok'}">${money(t.valor)}</td></tr>`).join('')
-    : '<tr><td colspan="4" class="empty"><strong>Nada em aberto</strong>Lance um título em A Pagar ou A Receber.</td></tr>';
+    : '<tr><td colspan="4" class="empty"><strong>Nada vence nos próximos 15 dias</strong>Os lançamentos mais distantes aparecem na aba Fluxo.</td></tr>';
 }
 function kpi(lbl,val,hint,cls){
   return `<div class="kpi ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="hint">${hint}</div></div>`;
@@ -1121,22 +1124,35 @@ function primeiroDiaVisivel(){
 }
 function renderFluxo(){
   const s0=saldoTotal();
-  const buckets=[['Vencidos',null,hoje()],['Próximos 7 dias',hoje(),addDays(7)],
-    ['8 a 15 dias',addDays(7),addDays(15)],['16 a 30 dias',addDays(15),addDays(30)],
-    ['31 a 60 dias',addDays(30),addDays(60)],['Depois de 60 dias',addDays(60),null]];
+  // Faixas fechadas [ini, fim], em datas ISO. null = sem limite daquele lado.
+  // Cuidado com o dia de hoje: ele pertence à primeira faixa futura, não aos vencidos.
+  const faixas=[
+    ['Vencidos',          null,         addDays(-1)],
+    ['Hoje e próximos 7 dias', addDays(0),  addDays(7)],
+    ['8 a 15 dias',       addDays(8),   addDays(15)],
+    ['16 a 30 dias',      addDays(16),  addDays(30)],
+    ['31 a 60 dias',      addDays(31),  addDays(60)],
+    ['Depois de 60 dias', addDays(61),  null],
+  ];
   let saldo=s0;
-  const linhas=buckets.map(([lbl,ini,fim])=>{
-    const dentro=t=>{ const v=String(t.vencimento).slice(0,10);
-      if(ini&&v<=ini) return false; if(fim&&v>fim) return false;
-      if(!ini&&v>=fim) return false; return true; };
+  const linhas=faixas.map(([lbl,ini,fim])=>{
+    const dentro=t=>{
+      const v=String(t.vencimento).slice(0,10);
+      if(!v) return false;
+      if(ini && v<ini) return false;
+      if(fim && v>fim) return false;
+      return true;
+    };
     const e=abertos(DB.Receber).filter(dentro).reduce((s,t)=>s+Number(t.valor||0),0);
     const sa=abertos(DB.Pagar).filter(dentro).reduce((s,t)=>s+Number(t.valor||0),0);
+    if(!e && !sa) return '';
     saldo+=e-sa;
     return `<tr><td>${lbl}</td><td class="num c-ok">${money(e)}</td><td class="num c-bad">${money(sa)}</td>
       <td class="num ${e-sa>=0?'c-ok':'c-bad'}">${money(e-sa)}</td>
       <td class="num"><strong class="${saldo>=0?'':'c-bad'}">${money(saldo)}</strong></td></tr>`;
-  });
-  $('tbody-fluxo').innerHTML=`<tr><td><strong>Saldo hoje</strong></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><strong>${money(s0)}</strong></td></tr>`+linhas.join('');
+  }).join('');
+  $('tbody-fluxo').innerHTML=`<tr><td><strong>Saldo hoje</strong></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><strong>${money(s0)}</strong></td></tr>`
+    + (linhas || '<tr><td colspan="5" class="empty"><strong>Nenhum título em aberto</strong>A projeção aparece quando houver contas lançadas.</td></tr>');
 }
 function addDays(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 
