@@ -89,6 +89,23 @@ tr.late td{background:rgba(192,57,43,.07)}
 .tag.vencido{color:var(--danger);border-color:var(--danger);background:rgba(192,57,43,.08)}
 .tag.cancelado{color:var(--text-muted)}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* AGRUPAMENTO POR CATEGORIA */
+tr.cat-row{cursor:pointer;background:var(--surface-2)}
+tr.cat-row:hover{background:var(--border)}
+tr.cat-row td{border-bottom:1px solid var(--border);padding:10px}
+.cat-bar{height:4px;background:var(--border);border-radius:3px;margin-top:5px;max-width:230px;overflow:hidden}
+.cat-bar span{display:block;height:100%;background:var(--success);border-radius:3px;transition:width .3s}
+.cat-pct{font-weight:600;font-size:11px;color:var(--text-muted);margin-left:6px}
+tr.row-starred td{box-shadow:inset 3px 0 0 var(--warning)}
+.star-btn{border:none;background:none;cursor:pointer;font-size:13px;color:var(--border);padding:0 3px;line-height:1}
+.star-btn:hover{color:var(--warning)}
+.star-btn.active{color:var(--warning)}
+.status-mark{display:inline-block;width:16px;font-weight:700;font-size:12px}
+.mark-paid{color:var(--success)} .mark-open{color:var(--text-muted)}
+.recur-mark{font-size:11px;color:var(--text-muted);margin-left:4px}
+td.chk{width:36px;text-align:center} td.chk input{width:auto;cursor:pointer}
+.acoes{display:flex;gap:4px}
 .empty{padding:34px 20px;text-align:center;color:var(--text-muted);font-size:13px}
 .empty strong{display:block;color:var(--text);font-size:14px;margin-bottom:5px}
 
@@ -168,6 +185,34 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="testarLogin()">Testar conexão</button>
       <button class="btn btn-primary" onclick="entrar()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIÇÃO -->
+<div id="modal-edit" class="overlay hidden">
+  <div class="modal">
+    <h3>Editar lançamento</h3>
+    <p class="hint" id="edit-sub"></p>
+    <div class="form-row">
+      <div class="form-field" style="max-width:150px"><label>Vencimento</label><input type="date" id="edit-venc"></div>
+      <div class="form-field"><label>Valor</label><input id="edit-valor" inputmode="decimal"></div>
+    </div>
+    <div class="form-field" style="margin-top:10px"><label>Descrição</label><input id="edit-desc"></div>
+    <div class="form-row" style="margin-top:10px">
+      <div class="form-field"><label>Categoria</label><select id="edit-cat"></select></div>
+      <div class="form-field"><label id="edit-pes-lbl">Contraparte</label><select id="edit-pes"></select></div>
+    </div>
+    <div class="form-field hidden" id="edit-escopo-wrap" style="margin-top:12px">
+      <label>Aplicar a</label>
+      <select id="edit-escopo">
+        <option value="one">Só este mês</option>
+        <option value="future">Este e os próximos em aberto</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicao()">Salvar</button>
     </div>
   </div>
 </div>
@@ -381,12 +426,12 @@ const SCHEMA = {
   Receber: ['id', 'emissao', 'vencimento', 'pessoa_id', 'descricao', 'categoria_id',
             'valor', 'forma_pgto', 'parcela', 'total_parcelas', 'status',
             'data_baixa', 'valor_recebido', 'taxa', 'conta_id', 'documento',
-            'obs', 'criado_em', 'atualizado_em'],
+            'obs', 'grupo_id', 'repeticao', 'destaque', 'criado_em', 'atualizado_em'],
 
   Pagar:   ['id', 'emissao', 'vencimento', 'pessoa_id', 'descricao', 'categoria_id',
             'valor', 'forma_pgto', 'parcela', 'total_parcelas', 'status',
             'data_baixa', 'valor_pago', 'juros_desconto', 'conta_id', 'documento',
-            'obs', 'criado_em', 'atualizado_em'],
+            'obs', 'grupo_id', 'repeticao', 'destaque', 'criado_em', 'atualizado_em'],
 
   Movimentos: ['id', 'data', 'tipo', 'origem', 'origem_id', 'conta_id',
                'valor', 'descricao', 'criado_em'],
@@ -508,10 +553,14 @@ function sheet_(nome) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Este script não está ligado a nenhuma planilha. Ele precisa ser criado por Extensões → Apps Script de dentro do Google Sheets.');
 
-  let sh = ss.getSheetByName(nome);
-  if (sh) return sh;
-
   const cols = SCHEMA[nome];
+  let sh = ss.getSheetByName(nome);
+
+  if (sh) {
+    if (cols) garantirColunas_(sh, cols);
+    return sh;
+  }
+
   if (!cols) throw new Error('Aba desconhecida: ' + nome);
 
   sh = ss.insertSheet(nome);
@@ -523,6 +572,19 @@ function sheet_(nome) {
     sh.getRange(2, 1, CONFIG_PADRAO.length, 2).setValues(CONFIG_PADRAO);
   }
   return sh;
+}
+
+/**
+ * Acrescenta ao final as colunas do schema que ainda não existem na aba.
+ * Permite evoluir a estrutura sem perder nenhuma linha já lançada.
+ */
+function garantirColunas_(sh, cols) {
+  const largura = sh.getLastColumn();
+  const atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(String) : [];
+  const faltando = cols.filter(c => atuais.indexOf(c) === -1);
+  if (!faltando.length) return;
+  sh.getRange(1, atuais.length + 1, 1, faltando.length).setValues([faltando])
+    .setFontWeight('bold').setBackground('#e8eaed');
 }
 
 function headers_(sh) {
@@ -907,70 +969,156 @@ function renderTitulos(ent){
   const f=filtro[ent];
   const mk=monthKey(cur);
 
-  let lista=DB[ent].filter(t=>t.status!=='Cancelado');
-  if(f==='abertos') lista=lista.filter(t=>t.status==='Aberto');
-  else if(f==='vencidos') lista=lista.filter(vencido);
-  else if(f==='mes') lista=lista.filter(t=>String(t.vencimento).slice(0,7)===mk);
-  else if(f==='baixados') lista=lista.filter(t=>t.status==='Baixado');
-  lista.sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
+  // Escopo: títulos que vencem no mês navegado. O filtro "Vencidos" ignora o mês,
+  // porque atraso não pertence a um mês só — é um problema do presente.
+  let base = DB[ent].filter(t=>t.status!=='Cancelado');
+  let lista = (f==='late')
+    ? base.filter(vencido)
+    : base.filter(t=>String(t.vencimento).slice(0,7)===mk);
 
-  const total=lista.reduce((s,t)=>s+Number(t.valor||0),0);
+  // Marca derivada de cada item, no mesmo espírito do arquivo pessoal
+  lista = lista.map(t=>{
+    const pago = t.status==='Baixado';
+    return {...t, pago, vOpen: pago?0:Number(t.valor||0), vPaid: pago?Number(t.valor||0):0};
+  });
+
+  const passa = it => f==='paid' ? it.pago
+                    : f==='open' ? !it.pago
+                    : f==='starred' ? !!it.destaque
+                    : true;
+
+  // Agrupa por categoria e soma. "visible" respeita o filtro; é o que vai na faixa.
+  const grupos={}; const visible={total:0,pago:0,aPagar:0};
+  lista.sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
+  lista.forEach(it=>{
+    const cat = nomeCat(it.categoria_id) || 'Sem categoria';
+    if(!grupos[cat]) grupos[cat]={total:0,aPagar:0,pago:0,items:[]};
+    grupos[cat].items.push(it);
+    grupos[cat].total  += Number(it.valor||0);
+    grupos[cat].aPagar += it.vOpen;
+    grupos[cat].pago   += it.vPaid;
+    if(passa(it)){ visible.total+=Number(it.valor||0); visible.pago+=it.vPaid; visible.aPagar+=it.vOpen; }
+  });
+
+  const filtros=[['all','Todos'],['paid',ehPagar?'Pagos':'Recebidos'],['open','Em Aberto'],
+                 ['starred','\u25C8 Destacados'],['late','Vencidos']];
+
+  let corpo='';
+  Object.keys(grupos).sort().forEach(cat=>{
+    const g=grupos[cat];
+    const visiveis=g.items.filter(passa);
+    if(!visiveis.length) return;
+    const pct = g.total>0 ? Math.round(g.pago/g.total*100) : 0;
+    const cc = 'grp-'+ent+'-'+cat.replace(/[^a-zA-Z0-9]/g,'');
+    corpo += `<tr class="cat-row" onclick="toggleRows('${cc}')">
+      <td colspan="2"><strong>\u25BE ${esc(cat)}</strong>
+        <span class="cat-pct">${pct}% quitado</span>
+        <div class="cat-bar"><span style="width:${pct}%"></span></div></td>
+      <td class="num"><strong>${money(g.total)}</strong></td>
+      <td class="num"><strong>${money(g.aPagar)}</strong></td>
+      <td class="num"><strong>${money(g.pago)}</strong></td>
+      <td></td></tr>`;
+    visiveis.forEach(it=> corpo += linhaTitulo(it, ent, cc));
+  });
 
   $('tab-'+ent).innerHTML=`
   <div class="card">
-    <h2>${ehPagar?'Lançar conta a pagar':'Lançar conta a receber'}</h2>
+    <h2>${ehPagar?'Lan\u00e7ar conta a pagar':'Lan\u00e7ar conta a receber'}</h2>
     <div class="form-row">
-      <div class="form-field" style="max-width:150px"><label>Vencimento</label><input type="date" id="f-venc-${ent}" value="${hoje()}"></div>
-      <div class="form-field" style="flex:2"><label>Descrição</label><input id="f-desc-${ent}" placeholder="${ehPagar?'Compra fornecedor X':'Venda balcão'}"></div>
+      <div class="form-field" style="max-width:150px"><label>Vencimento</label><input type="date" id="f-venc-${ent}" value="${primeiroDiaVisivel()}"></div>
+      <div class="form-field" style="flex:2"><label>Descri\u00e7\u00e3o</label><input id="f-desc-${ent}" placeholder="${ehPagar?'Compra fornecedor':'Venda balc\u00e3o'}"></div>
       <div class="form-field"><label>${ehPagar?'Fornecedor':'Cliente'}</label>
-        <select id="f-pes-${ent}"><option value="">—</option>${pessoas.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('')}</select></div>
+        <select id="f-pes-${ent}"><option value="">\u2014</option>${pessoas.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('')}</select></div>
       <div class="form-field"><label>Categoria</label>
-        <select id="f-cat-${ent}"><option value="">—</option>${cats.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select></div>
-      <div class="form-field" style="max-width:130px"><label>Valor total</label><input id="f-val-${ent}" inputmode="decimal" placeholder="0,00"></div>
-      <div class="form-field" style="max-width:90px"><label>Parcelas</label><input type="number" id="f-par-${ent}" min="1" value="1"></div>
-      <button class="btn btn-primary" onclick="addTitulo('${ent}')">Lançar</button>
+        <select id="f-cat-${ent}"><option value="">\u2014</option>${cats.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select></div>
+      <div class="form-field" style="max-width:140px"><label>Valor</label><input id="f-val-${ent}" inputmode="decimal" placeholder="0,00" oninput="previewRepeticao('${ent}')"></div>
+      <button class="btn btn-primary" onclick="addTitulo('${ent}')">Lan\u00e7ar</button>
     </div>
+
+    <div class="form-row" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <label class="check"><input type="checkbox" id="f-rec-${ent}" onchange="toggleRepeticao('${ent}')"> Repete nos pr\u00f3ximos meses</label>
+      <div class="form-field hidden" id="f-rep-wrap-${ent}" style="max-width:110px">
+        <label>Por quantos meses</label>
+        <input type="number" id="f-meses-${ent}" min="2" max="60" placeholder="12" oninput="previewRepeticao('${ent}')">
+      </div>
+      <div class="form-field hidden" id="f-modo-wrap-${ent}" style="max-width:320px">
+        <label>Como repetir</label>
+        <select id="f-modo-${ent}" onchange="previewRepeticao('${ent}')">
+          <option value="recorrente">Mesmo valor todo m\u00eas (aluguel, luz)</option>
+          <option value="parcelado">Dividir o valor entre os meses (compra em Nx)</option>
+        </select>
+      </div>
+    </div>
+    <p id="f-preview-${ent}" class="hidden" style="font-size:12px;color:var(--text-muted);margin-top:8px"></p>
+
     <div class="form-row" style="margin-top:12px">
-      <label class="check"><input type="checkbox" id="f-pago-${ent}" onchange="togglePago('${ent}')"> ${ehPagar?'Já paguei':'Já recebi'}</label>
+      <label class="check"><input type="checkbox" id="f-pago-${ent}" onchange="togglePago('${ent}')"> ${ehPagar?'J\u00e1 paguei':'J\u00e1 recebi'}</label>
       <div class="form-field hidden" id="f-conta-wrap-${ent}" style="max-width:220px"><label>Conta</label>
         <select id="f-conta-${ent}">${DB.Contas.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')||'<option value="">cadastre uma conta</option>'}</select></div>
     </div>
-    ${cats.length?'':'<p style="font-size:12px;color:var(--text-muted);margin-top:10px">Sem categoria cadastrada ainda — pode lançar sem, e classificar depois em Cadastros.</p>'}
+    ${cats.length?'':'<p style="font-size:12px;color:var(--text-muted);margin-top:10px">Sem categoria cadastrada ainda \u2014 pode lan\u00e7ar sem, e classificar depois.</p>'}
   </div>
 
-  <div class="card">
-    <div class="toolbar">
-      <div class="filters">
-        ${[['abertos','Em aberto'],['vencidos','Vencidos'],['mes','Do mês'],['baixados','Baixados'],['todos','Todos']]
-          .map(([k,l])=>`<button class="${f===k?'active':''}" onclick="setFiltro('${ent}','${k}')">${l}</button>`).join('')}
-      </div>
-      <div class="strip"><span>Total exibido: <strong class="${ehPagar?'c-bad':'c-ok'}">${money(total)}</strong></span></div>
+  <div class="toolbar">
+    <div class="strip">
+      <span>Total: <strong>${money(visible.total)}</strong></span>
+      <span>${ehPagar?'Pago':'Recebido'}: <strong class="c-ok">${money(visible.pago)}</strong></span>
+      <span>Em Aberto: <strong class="c-warn">${money(visible.aPagar)}</strong></span>
     </div>
+    <div class="filters">
+      ${filtros.map(([k,l])=>`<button class="${f===k?'active':''}" onclick="setFiltro('${ent}','${k}')">${l}</button>`).join('')}
+    </div>
+  </div>
+
+  <div class="card" style="padding:0">
     <div class="table-wrap"><table>
-      <thead><tr><th>Vencimento</th><th>Descrição</th><th>${ehPagar?'Fornecedor':'Cliente'}</th><th>Categoria</th><th class="num">Valor</th><th>Status</th><th></th></tr></thead>
-      <tbody>${lista.length?lista.map(t=>linhaTitulo(t,ent)).join('')
-        :`<tr><td colspan="7" class="empty"><strong>Nada aqui</strong>Lance o primeiro título no formulário acima.</td></tr>`}</tbody>
+      <thead><tr>
+        <th style="width:36px">\u2714</th><th style="width:35%">Descri\u00e7\u00e3o</th>
+        <th class="num">Total</th><th class="num">${ehPagar?'A Pagar':'A Receber'}</th>
+        <th class="num">${ehPagar?'Pago':'Recebido'}</th><th style="width:90px">A\u00e7\u00f5es</th>
+      </tr></thead>
+      <tbody>${corpo || `<tr><td colspan="6" class="empty"><strong>Nada em ${f==='late'?'atraso':cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong>Lan\u00e7e no formul\u00e1rio acima ou troque o m\u00eas no topo.</td></tr>`}</tbody>
     </table></div>
   </div>`;
 }
 
-function linhaTitulo(t,ent){
-  const late=vencido(t), done=t.status==='Baixado';
-  const st=done?'<span class="tag baixado">Baixado</span>':late?'<span class="tag vencido">Vencido</span>':'<span class="tag aberto">Aberto</span>';
-  const acao=done
-    ? `<button class="btn btn-sm btn-ghost" onclick="estornar('${ent}','${t.id}')">Estornar</button>`
-    : `<button class="btn btn-sm btn-success" onclick="abrirBaixa('${ent}','${t.id}')">${ent==='Pagar'?'Pagar':'Receber'}</button>
-       <button class="btn btn-sm btn-ghost" onclick="cancelar('${ent}','${t.id}')">Cancelar</button>`;
-  return `<tr class="${done?'done':''} ${late?'late':''}">
-    <td>${brDate(t.vencimento)}</td>
-    <td class="desc">${esc(t.descricao)}${t.total_parcelas>1?` <span style="color:var(--text-muted);font-size:11px">(${esc(t.parcela)})</span>`:''}</td>
-    <td>${esc(nomePessoa(t.pessoa_id))}</td>
-    <td>${esc(nomeCat(t.categoria_id))}</td>
+/** Linha de um título, no mesmo formato visual do controle pessoal. */
+function linhaTitulo(t,ent,cc){
+  const late=vencido(t);
+  const classes=[cc, t.pago?'done':'', late?'late':'', t.destaque?'row-starred':''].filter(Boolean).join(' ');
+  const rep = t.repeticao==='recorrente' ? '<span class="recur-mark" title="Recorrente">\u21BB</span>'
+            : (t.total_parcelas>1 ? `<span class="recur-mark">${esc(t.parcela)}</span>` : '');
+  return `<tr class="${classes}">
+    <td class="chk"><input type="checkbox" ${t.pago?'checked':''} onchange="toggleBaixa('${ent}','${t.id}',this)"></td>
+    <td>
+      <span class="status-mark ${t.pago?'mark-paid':'mark-open'}" title="${t.pago?'Quitado':'Em aberto'}">${t.pago?'\u2713':'\u25CB'}</span>
+      <button class="star-btn ${t.destaque?'active':''}" onclick="toggleDestaque('${ent}','${t.id}')" title="Destacar">\u25C8</button>
+      <span class="desc">${esc(t.descricao)}</span>${rep}
+      <div style="font-size:11px;color:var(--text-muted);margin-left:22px">
+        vence ${brDate(t.vencimento)}${t.pessoa_id?' \u00b7 '+esc(nomePessoa(t.pessoa_id)):''}${late?' \u00b7 EM ATRASO':''}</div>
+    </td>
     <td class="num">${money(t.valor)}</td>
-    <td>${st}</td>
-    <td style="white-space:nowrap">${acao}</td></tr>`;
+    <td class="num">${money(t.vOpen)}</td>
+    <td class="num">${money(t.vPaid)}</td>
+    <td><div class="acoes">
+      <button class="btn btn-sm btn-ghost" onclick="abrirEdicao('${ent}','${t.id}')" title="Editar">\u270E</button>
+      <button class="btn btn-sm btn-danger" onclick="cancelar('${ent}','${t.id}')" title="Cancelar">\u00d7</button>
+    </div></td></tr>`;
 }
 
+/** Colapsa/expande as linhas de uma categoria, igual ao arquivo pessoal. */
+function toggleRows(cls){
+  document.querySelectorAll('.'+cls).forEach(r=>{
+    r.style.display = r.style.display==='none' ? 'table-row' : 'none';
+  });
+}
+
+/** Sugere o dia 1 do mês navegado, para lançar direto no mês que estou vendo. */
+function primeiroDiaVisivel(){
+  const h=new Date();
+  if(cur.getFullYear()===h.getFullYear() && cur.getMonth()===h.getMonth()) return hoje();
+  return `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-01`;
+}
 function renderFluxo(){
   const s0=saldoTotal();
   const buckets=[['Vencidos',null,hoje()],['Próximos 7 dias',hoje(),addDays(7)],
@@ -1033,33 +1181,91 @@ function renderCadastros(){
 function setFiltro(ent,f){ filtro[ent]=f; renderTitulos(ent); }
 function togglePago(ent){ $(`f-conta-wrap-${ent}`).classList.toggle('hidden',!$(`f-pago-${ent}`).checked); }
 
+/** Mostra/esconde os campos de repetição e explica o resultado antes de gravar. */
+function toggleRepeticao(ent){
+  const on=$(`f-rec-${ent}`).checked;
+  $(`f-rep-wrap-${ent}`).classList.toggle('hidden',!on);
+  $(`f-modo-wrap-${ent}`).classList.toggle('hidden',!on);
+  if(!on){ $(`f-meses-${ent}`).value=''; $(`f-preview-${ent}`).classList.add('hidden'); }
+  else { $(`f-meses-${ent}`).focus(); previewRepeticao(ent); }
+}
+
+/** Diz em português o que vai acontecer, para não haver surpresa no valor. */
+function previewRepeticao(ent){
+  const el=$(`f-preview-${ent}`);
+  if(!$(`f-rec-${ent}`).checked) return el.classList.add('hidden');
+  const n=parseInt($(`f-meses-${ent}`).value)||0;
+  const val=parseNum($(`f-val-${ent}`).value);
+  const modo=$(`f-modo-${ent}`).value;
+  if(n<2||!val) return el.classList.add('hidden');
+  el.classList.remove('hidden');
+  el.textContent = modo==='recorrente'
+    ? `Vai criar ${n} títulos de ${money(val)}, um por mês. Total de ${money(val*n)}.`
+    : `Vai criar ${n} títulos de aproximadamente ${money(val/n)}, um por mês. Total de ${money(val)}.`;
+}
+
 async function addTitulo(ent){
   const venc=$(`f-venc-${ent}`).value, desc=$(`f-desc-${ent}`).value.trim();
-  const val=parseNum($(`f-val-${ent}`).value), par=Math.max(1,parseInt($(`f-par-${ent}`).value)||1);
+  const val=parseNum($(`f-val-${ent}`).value);
   const pes=$(`f-pes-${ent}`).value, cat=$(`f-cat-${ent}`).value;
+  const repete=$(`f-rec-${ent}`).checked;
+  const meses=repete?Math.max(2,parseInt($(`f-meses-${ent}`).value)||0):1;
+  const modo=repete?$(`f-modo-${ent}`).value:'';
   const jaPago=$(`f-pago-${ent}`).checked, conta=$(`f-conta-${ent}`)?$(`f-conta-${ent}`).value:'';
-  if(!venc||!desc||!val) return toast('Preencha vencimento, descrição e valor.','error');
-  if(jaPago&&!conta) return toast('Escolha a conta, ou cadastre uma em Cadastros.','error');
 
-  const base=Math.floor(val/par*100)/100;
+  if(!venc||!desc||!val) return toast('Preencha vencimento, descrição e valor.','error');
+  if(repete && meses<2) return toast('Informe por quantos meses (mínimo 2).','error');
+  if(jaPago&&!conta) return toast('Escolha a conta, ou cadastre uma em Cadastros.','error');
+  if(jaPago&&repete) return toast('Um lançamento que se repete não pode nascer já quitado. Dê baixa mês a mês.','error',7000);
+
+  // grupo_id liga as ocorrências para permitir editar ou cancelar todas de uma vez
+  const grupo = repete ? 'GRP-'+Date.now().toString(36).toUpperCase() : '';
   const registros=[];
-  for(let i=0;i<par;i++){
-    const v = i===par-1 ? Math.round((val-base*(par-1))*100)/100 : base;
-    registros.push({ emissao:hoje(), vencimento:addMonths(venc,i), pessoa_id:pes, descricao:desc,
-      categoria_id:cat, valor:v, parcela:par>1?`${i+1}/${par}`:'', total_parcelas:par, status:'Aberto' });
+  if(!repete){
+    registros.push({ emissao:hoje(), vencimento:venc, pessoa_id:pes, descricao:desc,
+      categoria_id:cat, valor:val, parcela:'', total_parcelas:1, status:'Aberto', destaque:false });
+  } else if(modo==='recorrente'){
+    for(let i=0;i<meses;i++) registros.push({ emissao:hoje(), vencimento:addMonths(venc,i),
+      pessoa_id:pes, descricao:desc, categoria_id:cat, valor:val,
+      parcela:`${i+1}/${meses}`, total_parcelas:meses, status:'Aberto',
+      grupo_id:grupo, repeticao:'recorrente', destaque:false });
+  } else {
+    // parcelado: o resto dos centavos vai na última parcela, para fechar o total exato
+    const base=Math.floor(val/meses*100)/100;
+    for(let i=0;i<meses;i++){
+      const v = i===meses-1 ? Math.round((val-base*(meses-1))*100)/100 : base;
+      registros.push({ emissao:hoje(), vencimento:addMonths(venc,i), pessoa_id:pes, descricao:desc,
+        categoria_id:cat, valor:v, parcela:`${i+1}/${meses}`, total_parcelas:meses, status:'Aberto',
+        grupo_id:grupo, repeticao:'parcelado', destaque:false });
+    }
   }
+
   load('Gravando');
   try{
     const j=await apiPost({action:'upsertMany',entity:ent,records:registros});
-    if(jaPago && par===1){
+    if(jaPago && !repete){
       await apiPost({action:'baixa',entity:ent,id:j.records[0].id,data:hoje(),valor:val,conta_id:conta});
     }
-    toast(par>1?`Lançado em ${par} parcelas.`:'Lançado.','success');
-    ['f-desc-','f-val-'].forEach(p=>$(p+ent).value='');
-    $(`f-par-${ent}`).value=1; $(`f-pago-${ent}`).checked=false; togglePago(ent);
+    toast(repete?`Lançado em ${meses} meses.`:'Lançado.','success');
+    $(`f-desc-${ent}`).value=''; $(`f-val-${ent}`).value='';
+    $(`f-rec-${ent}`).checked=false; toggleRepeticao(ent);
+    $(`f-pago-${ent}`).checked=false; togglePago(ent);
     await sync();
   }catch(e){ toast('Falha ao lançar: '+e.message,'error',8000); }
   finally{ unload(); }
+}
+
+/** O checkbox da tabela liga na baixa real: marcar abre o modal, desmarcar estorna. */
+async function toggleBaixa(ent,id,el){
+  const t=DB[ent].find(x=>x.id===id); if(!t) return;
+  if(t.status==='Baixado'){ el.checked=true; await estornar(ent,id); return; }
+  el.checked=false;
+  abrirBaixa(ent,id);
+}
+
+async function toggleDestaque(ent,id){
+  const t=DB[ent].find(x=>x.id===id); if(!t) return;
+  if(await push(ent,{id,destaque:!t.destaque})) await sync();
 }
 
 function abrirBaixa(ent,id){
@@ -1094,11 +1300,70 @@ async function estornar(ent,id){
   catch(e){ toast('Falha ao estornar: '+e.message,'error',8000); }
   finally{ unload(); }
 }
+let editCtx=null;
+
+function abrirEdicao(ent,id){
+  const t=DB[ent].find(x=>x.id===id); if(!t) return;
+  if(t.status==='Baixado') return toast('Título já baixado. Estorne antes de editar.','error',6000);
+  editCtx={ent,id};
+  const ehPagar=ent==='Pagar';
+  const cats=DB.Categorias.filter(c=>c.tipo===(ehPagar?'despesa':'receita'));
+  const pessoas=DB.Pessoas.filter(p=>p.tipo===(ehPagar?'Fornecedor':'Cliente')||p.tipo==='Ambos');
+
+  $('edit-sub').textContent = t.total_parcelas>1 ? `Parcela ${t.parcela} de um lançamento repetido` : 'Lançamento avulso';
+  $('edit-venc').value=String(t.vencimento).slice(0,10);
+  $('edit-valor').value=String(Number(t.valor).toFixed(2)).replace('.',',');
+  $('edit-desc').value=t.descricao||'';
+  $('edit-pes-lbl').textContent = ehPagar?'Fornecedor':'Cliente';
+  $('edit-cat').innerHTML='<option value="">—</option>'+cats.map(c=>`<option value="${c.id}" ${c.id===t.categoria_id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  $('edit-pes').innerHTML='<option value="">—</option>'+pessoas.map(p=>`<option value="${p.id}" ${p.id===t.pessoa_id?'selected':''}>${esc(p.nome)}</option>`).join('');
+
+  // Só oferece o escopo se houver de fato outros títulos em aberto no mesmo grupo
+  const irmaos = t.grupo_id ? DB[ent].filter(x=>x.grupo_id===t.grupo_id && x.status==='Aberto'
+                    && String(x.vencimento)>String(t.vencimento)) : [];
+  $('edit-escopo-wrap').classList.toggle('hidden', irmaos.length===0);
+  $('edit-escopo').value='one';
+  $('modal-edit').classList.remove('hidden');
+}
+
+async function salvarEdicao(){
+  if(!editCtx) return;
+  const {ent,id}=editCtx;
+  const t=DB[ent].find(x=>x.id===id); if(!t) return;
+  const venc=$('edit-venc').value, valor=parseNum($('edit-valor').value);
+  const desc=$('edit-desc').value.trim(), cat=$('edit-cat').value, pes=$('edit-pes').value;
+  if(!venc||!desc||!valor) return toast('Preencha vencimento, descrição e valor.','error');
+  const escopo = $('edit-escopo-wrap').classList.contains('hidden') ? 'one' : $('edit-escopo').value;
+
+  const registros=[{ id, vencimento:venc, valor, descricao:desc, categoria_id:cat, pessoa_id:pes }];
+  if(escopo==='future'){
+    // Vencimento não se propaga: cada mês tem o seu. Valor e dados cadastrais, sim.
+    DB[ent].filter(x=>x.grupo_id===t.grupo_id && x.status==='Aberto' && String(x.vencimento)>String(t.vencimento))
+      .forEach(x=>registros.push({ id:x.id, valor, descricao:desc, categoria_id:cat, pessoa_id:pes }));
+  }
+  closeModal('modal-edit'); load('Gravando');
+  try{
+    await apiPost({action:'upsertMany',entity:ent,records:registros});
+    toast(registros.length>1?`${registros.length} lançamentos atualizados.`:'Lançamento atualizado.','success');
+    await sync();
+  }catch(e){ toast('Falha ao salvar: '+e.message,'error',8000); }
+  finally{ unload(); editCtx=null; }
+}
+
 async function cancelar(ent,id){
+  const t=DB[ent].find(x=>x.id===id); if(!t) return;
+  const irmaos = t.grupo_id ? DB[ent].filter(x=>x.grupo_id===t.grupo_id && x.status==='Aberto'
+                    && String(x.vencimento)>String(t.vencimento)) : [];
   if(!confirm('Cancelar este título? Ele fica no histórico com status Cancelado.')) return;
+  const tudo = irmaos.length>0 &&
+    confirm(`Existem ${irmaos.length} lançamento(s) deste mesmo grupo nos meses seguintes.\n\nOK = cancelar também os próximos.\nCancelar = cancelar só este mês.`);
   load('Cancelando');
-  try{ await apiPost({action:'cancel',entity:ent,id}); toast('Título cancelado.','success'); await sync(); }
-  catch(e){ toast('Falha ao cancelar: '+e.message,'error',8000); }
+  try{
+    await apiPost({action:'cancel',entity:ent,id});
+    if(tudo) for(const x of irmaos) await apiPost({action:'cancel',entity:ent,id:x.id});
+    toast(tudo?`${irmaos.length+1} títulos cancelados.`:'Título cancelado.','success');
+    await sync();
+  }catch(e){ toast('Falha ao cancelar: '+e.message,'error',8000); }
   finally{ unload(); }
 }
 
