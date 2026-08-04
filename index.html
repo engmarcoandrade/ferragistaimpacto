@@ -89,6 +89,11 @@ tr.late td{background:rgba(192,57,43,.07)}
 .tag.vencido{color:var(--danger);border-color:var(--danger);background:rgba(192,57,43,.08)}
 .tag.cancelado{color:var(--text-muted)}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.saldo-input{text-align:right;font-variant-numeric:tabular-nums;width:130px;padding:5px 8px;
+  border:1px solid transparent;background:transparent;font-size:13px}
+.saldo-input:hover{border-color:var(--border);background:var(--surface)}
+.saldo-input:focus{border-color:var(--primary);background:var(--surface)}
+.saldo-input.forte{font-weight:700}
 
 /* AGRUPAMENTO POR CATEGORIA */
 tr.cat-row{cursor:pointer;background:var(--surface-2)}
@@ -1186,10 +1191,19 @@ function renderFaturamento(){
 }
 
 function renderCadastros(){
-  $('tbody-contas').innerHTML=DB.Contas.length?DB.Contas.map(c=>
-    `<tr><td>${esc(c.nome)}</td><td>${esc(c.tipo)}</td><td class="num">${money(c.saldo_inicial)}</td>
-     <td class="num"><strong>${money(saldoConta(c.id))}</strong></td>
-     <td><button class="btn btn-sm btn-ghost" onclick="renomear('Contas','${c.id}')">Renomear</button></td></tr>`).join('')
+  $('tbody-contas').innerHTML=DB.Contas.length?DB.Contas.map(c=>{
+    const atual=saldoConta(c.id);
+    return `<tr><td>${esc(c.nome)}</td><td>${esc(c.tipo)}</td>
+     <td class="num"><input class="saldo-input" value="${money(c.saldo_inicial)}"
+        onfocus="this.value=String(${Number(c.saldo_inicial||0)}).replace('.',',');this.select()"
+        onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value='${money(c.saldo_inicial)}';this.blur()}"
+        onblur="salvarSaldoInicial('${c.id}',this)" title="Corrige o ponto de partida da conta"></td>
+     <td class="num"><input class="saldo-input forte" value="${money(atual)}"
+        onfocus="this.value=String(${atual}).replace('.',',');this.select()"
+        onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value='${money(atual)}';this.blur()}"
+        onblur="ajustarSaldo('${c.id}',this)" title="Digite o saldo real: a diferença vira um lançamento de ajuste"></td>
+     <td><button class="btn btn-sm btn-ghost" onclick="renomear('Contas','${c.id}')">Renomear</button></td></tr>`;
+  }).join('')
     :'<tr><td colspan="5" class="empty"><strong>Nenhuma conta</strong>Cadastre com o saldo do dia de hoje.</td></tr>';
 
   $('tbody-cats').innerHTML=DB.Categorias.length?DB.Categorias.map(c=>
@@ -1417,6 +1431,41 @@ async function addPessoa(){
   }
   unload();
 }
+/** Corrige o ponto de partida da conta. Reescreve o histórico de propósito:
+ *  serve para consertar erro de digitação no cadastro. */
+async function salvarSaldoInicial(id,el){
+  const c=DB.Contas.find(x=>x.id===id); if(!c) return;
+  const novo=parseNum(el.value), antigo=Number(c.saldo_inicial||0);
+  if(Math.abs(novo-antigo)<0.005){ el.value=money(antigo); return; }
+  el.value=money(novo);
+  load('Gravando');
+  if(await push('Contas',{id,saldo_inicial:novo})){
+    toast(`Saldo inicial de ${c.nome}: ${money(antigo)} → ${money(novo)}`,'success',6000);
+    await sync();
+  }
+  unload();
+}
+
+/** Conciliação: você digita o saldo real e a diferença vira um lançamento
+ *  de ajuste. O histórico não é reescrito — a correção fica registrada. */
+async function ajustarSaldo(id,el){
+  const c=DB.Contas.find(x=>x.id===id); if(!c) return;
+  const atual=saldoConta(id), novo=parseNum(el.value), dif=Math.round((novo-atual)*100)/100;
+  if(Math.abs(dif)<0.005){ el.value=money(atual); return; }
+  if(!confirm(`Ajustar ${c.nome} de ${money(atual)} para ${money(novo)}?\n\nSerá criado um lançamento de ajuste de ${money(dif)}.`)){
+    el.value=money(atual); return;
+  }
+  el.value=money(novo);
+  load('Lançando ajuste');
+  // tipo "Ajuste" de propósito: não entra no faturamento nem no teto do MEI
+  if(await push('Movimentos',{ data:hoje(), tipo:'Ajuste', origem:'Conciliação', origem_id:id,
+      conta_id:id, valor:dif, descricao:`Ajuste de saldo (${money(atual)} → ${money(novo)})` })){
+    toast(`Ajuste de ${money(dif)} lançado em ${c.nome}.`,'success',6000);
+    await sync();
+  }
+  unload();
+}
+
 async function renomear(ent,id){
   const atual=DB[ent].find(x=>x.id===id); if(!atual) return;
   const novo=prompt('Novo nome:',atual.nome); if(!novo||novo===atual.nome) return;
