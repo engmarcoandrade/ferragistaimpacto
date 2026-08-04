@@ -783,6 +783,16 @@ function respond_(obj) {
 </script>
 
 <script>
+/* ══════════════════════════════════════════════════════════════
+   ⚙  ÚNICA LINHA QUE VOCÊ PRECISA EDITAR
+
+   Cole entre as aspas a URL do seu App da Web (a que termina em /exec).
+   Com ela preenchida, o app abre já conectado e NUNCA mais pede o caminho,
+   em qualquer computador. Deixando vazia, a tela de conexão aparece sempre.
+   ══════════════════════════════════════════════════════════════ */
+
+const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAwFnF16G_YNSMODHgfof4mrgxjtT2DE-qRtUhdvZ-4FetZu55/exec';
+
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
 let DB = { Contas:[], Categorias:[], Pessoas:[], Receber:[], Pagar:[], Movimentos:[], Config:{} };
@@ -1521,10 +1531,6 @@ document.querySelectorAll('.tab-link').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
   b.classList.add('active'); $('tab-'+b.dataset.tab).classList.add('active');
 });
-// Cole aqui a URL do seu App da Web para o app já abrir conectado.
-// Enquanto estiver vazia, a tela de conexão aparece a cada abertura.
-const URL_PADRAO = '';
-
 $('script-box').textContent=$('gs-source').textContent;
 $('script-box2').textContent=$('gs-source').textContent;
 $('login-url').value=URL_PADRAO;
