@@ -187,12 +187,16 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
 <div id="toasts"></div>
 
 <!-- IDENTIFICAÇÃO DO OPERADOR -->
-<div id="modal-op" class="overlay">
+<div id="modal-op" class="overlay hidden">
   <div class="modal" style="width:400px">
     <h3>Quem está operando?</h3>
-    <p class="hint">Seu nome fica registrado em cada lançamento e no histórico. Não é senha — é para saber quem fez o quê.</p>
-    <div class="form-field">
-      <label>Nome</label>
+    <p class="hint">O nome fica registrado em cada lançamento e no histórico. Não é senha — serve para saber quem fez o quê.</p>
+    <div class="form-field" id="op-lista-wrap">
+      <label>Selecione seu nome</label>
+      <select id="op-select" onchange="opSelectMudou()"></select>
+    </div>
+    <div class="form-field hidden" id="op-novo-wrap" style="margin-top:10px">
+      <label>Nome do novo operador</label>
       <input id="op-nome" placeholder="Ex: Marcos" onkeydown="if(event.key==='Enter')definirOperador()" autocomplete="off">
     </div>
     <div id="op-erro" class="hidden" style="margin-top:10px;font-size:12px;color:var(--danger);font-weight:600"></div>
@@ -403,6 +407,18 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
     <p id="cfg-diag" style="font-size:12px;color:var(--text-muted);margin-top:10px">Sem senha: quem tiver esta URL acessa os dados. Não divulgue o endereço.</p>
   </div>
   <div class="card">
+    <h2>Operadores <span class="sub">quem pode usar a ferramenta</span></h2>
+    <div class="form-row">
+      <div class="form-field"><label>Nome</label><input id="op-add-nome" placeholder="Nome da pessoa" onkeydown="if(event.key==='Enter')addOperador()"></div>
+      <button class="btn btn-primary" onclick="addOperador()">Adicionar</button>
+    </div>
+    <div class="table-wrap" style="margin-top:14px"><table>
+      <thead><tr><th>Nome</th><th>Situação</th><th class="num">Lançamentos</th><th></th></tr></thead>
+      <tbody id="tbody-ops"></tbody></table></div>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:10px">Desativar tira o nome da lista de entrada, mas preserva o histórico do que a pessoa já lançou.</p>
+  </div>
+
+  <div class="card">
     <h2>Últimas ações <span class="sub">quem fez o quê</span></h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Quando</th><th>Operador</th><th>Ação</th><th>Detalhe</th></tr></thead>
@@ -454,6 +470,8 @@ const SCHEMA = {
   Categorias: ['id', 'tipo', 'nome', 'ativo'],
 
   Pessoas: ['id', 'tipo', 'nome', 'documento', 'telefone', 'prazo_padrao', 'obs', 'ativo'],
+
+  Operadores: ['id', 'nome', 'ativo', 'criado_em'],
 
   Receber: ['id', 'emissao', 'vencimento', 'pessoa_id', 'descricao', 'categoria_id',
             'valor', 'forma_pgto', 'parcela', 'total_parcelas', 'status',
@@ -519,7 +537,7 @@ function doGet(e) {
           return respond_({ status: 'ok', entity: p.entity, data: readEntity_(p.entity) });
         }
         const out = {};
-        ['Contas', 'Categorias', 'Pessoas', 'Receber', 'Pagar', 'Movimentos']
+        ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(n => out[n] = readEntity_(n));
         out.Config = config_();
         return respond_({ status: 'ok', data: out });
@@ -800,7 +818,8 @@ function acharLinha_(sh, id) {
 
 function novoId_(entidade) {
   const prefixo = { Receber: 'REC', Pagar: 'PAG', Pessoas: 'PES',
-                    Categorias: 'CAT', Contas: 'CTA', Movimentos: 'MOV' }[entidade] || 'REG';
+                    Categorias: 'CAT', Contas: 'CTA', Movimentos: 'MOV',
+                    Operadores: 'OPE' }[entidade] || 'REG';
   return prefixo + '-' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyMMdd') +
          '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
 }
@@ -833,7 +852,7 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
@@ -877,19 +896,93 @@ function moveMonth(n){
 }
 
 /* ═══════════ OPERADOR ═══════════ */
-function definirOperador(){
-  const n=$('op-nome').value.trim();
-  if(n.length<2){ $('op-erro').textContent='Escreva pelo menos duas letras.'; $('op-erro').classList.remove('hidden'); return; }
-  OPERADOR=n.slice(0,60);
+const opsAtivos = () => DB.Operadores.filter(o=>o.ativo!==false && o.ativo!=='FALSE' && o.nome);
+
+/** Abre a seleção de operador. Só faz sentido depois do sync,
+ *  porque a lista de nomes vem da planilha. */
+function pedirOperador(){
+  const lista=opsAtivos();
+  const sel=$('op-select');
+  sel.innerHTML='<option value="">— selecione —</option>'
+    + lista.map(o=>`<option value="${esc(o.nome)}" ${o.nome===OPERADOR?'selected':''}>${esc(o.nome)}</option>`).join('')
+    + '<option value="__novo__">＋ Novo operador…</option>';
+
+  if(!loaded){
+    erroOp('Sem conexão com a planilha. Veja o motivo na faixa vermelha do topo.');
+  }
+  const vazia = lista.length===0;
+  $('op-lista-wrap').classList.toggle('hidden',vazia);
+  $('op-novo-wrap').classList.toggle('hidden',!vazia);
+  if(vazia) sel.value='__novo__';
+  if(loaded) $('op-erro').classList.add('hidden');
+  $('modal-op').classList.remove('hidden');
+  setTimeout(()=>(vazia?$('op-nome'):$('op-select')).focus(),80);
+}
+function opSelectMudou(){
+  const novo=$('op-select').value==='__novo__';
+  $('op-novo-wrap').classList.toggle('hidden',!novo);
+  if(novo) setTimeout(()=>$('op-nome').focus(),50);
+}
+function erroOp(msg){ $('op-erro').textContent=msg; $('op-erro').classList.remove('hidden'); }
+
+async function definirOperador(){
+  const criando = $('op-select').value==='__novo__' || opsAtivos().length===0;
+  let nome = criando ? $('op-nome').value.trim() : $('op-select').value;
+
+  if(!nome) return erroOp(criando?'Escreva o nome.':'Selecione seu nome na lista.');
+  if(nome.length<2) return erroOp('Escreva pelo menos duas letras.');
+  nome=nome.slice(0,60);
+
+  if(criando){
+    const jaExiste=DB.Operadores.find(o=>norm(o.nome)===norm(nome));
+    if(jaExiste && jaExiste.ativo===false) return erroOp(`"${jaExiste.nome}" está desativado. Reative em Config.`);
+    if(jaExiste) return erroOp(`"${jaExiste.nome}" já está na lista — selecione pelo nome.`);
+
+    OPERADOR=nome;                       // precisa existir antes, para o Log registrar quem criou
+    load('Cadastrando operador');
+    try{
+      await apiPost({action:'upsert',entity:'Operadores',
+        record:{nome,ativo:true,criado_em:hoje()}});
+    }catch(e){
+      // A lista de operadores é conveniência, não porta de entrada.
+      // Se o cadastro falhar, entra assim mesmo e explica o que houve.
+      const m=String(e.message||e);
+      toast(/Aba desconhecida|Aba não encontrada/i.test(m)
+        ? 'Entrou, mas o nome não foi salvo na lista: o script na planilha está desatualizado. Republique em Implantar → Gerenciar implantações → lápis → Versão: Nova versão.'
+        : 'Entrou, mas o nome não foi salvo na lista: '+m, 'error', 12000);
+    }finally{ unload(); }
+  }
+
+  OPERADOR=nome;
   $('op-nome-txt').textContent=OPERADOR;
+  $('op-nome').value='';
   $('op-erro').classList.add('hidden');
   closeModal('modal-op');
-  if(S.url){ sync(); } else { $('login').classList.remove('hidden'); }
+  await sync();
 }
 function trocarOperador(){
-  $('op-nome').value=OPERADOR;
-  $('modal-op').classList.remove('hidden');
-  setTimeout(()=>$('op-nome').select(),80);
+  if(!loaded) return toast('Conecte à planilha primeiro.','error');
+  pedirOperador();
+}
+
+async function addOperador(){
+  const nome=$('op-add-nome').value.trim();
+  if(nome.length<2) return toast('Informe o nome.','error');
+  if(DB.Operadores.find(o=>norm(o.nome)===norm(nome))) return toast('Esse nome já está na lista.','error');
+  load('Gravando');
+  if(await push('Operadores',{nome,ativo:true,criado_em:hoje()})){
+    $('op-add-nome').value=''; toast('Operador adicionado.','success'); await sync();
+  }
+  unload();
+}
+async function alternarOperador(id){
+  const o=DB.Operadores.find(x=>x.id===id); if(!o) return;
+  const ativo=o.ativo!==false;
+  if(ativo && norm(o.nome)===norm(OPERADOR)) return toast('Você não pode desativar a si mesmo enquanto está operando.','error',6000);
+  if(!confirm(ativo?`Desativar ${o.nome}? O histórico dele é preservado.`:`Reativar ${o.nome}?`)) return;
+  load('Gravando');
+  if(await push('Operadores',{id,ativo:!ativo})){ toast(ativo?'Operador desativado.':'Operador reativado.','success'); await sync(); }
+  unload();
 }
 
 /* ═══════════ API ═══════════ */
@@ -902,6 +995,7 @@ async function apiGet(params){
   return j;
 }
 async function apiPost(body){
+  if(!OPERADOR) throw new Error('Identifique o operador antes de gravar.');
   const r=await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({...body,operador:OPERADOR})});
   if(!r.ok) throw new Error('HTTP '+r.status);
@@ -967,7 +1061,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderLog(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderOperadores(); renderLog(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 function renderBadge(){
@@ -1255,6 +1349,19 @@ function renderCadastros(){
     `<tr><td>${esc(p.nome)}</td><td class="num">${money(emAbertoPor('pessoa_id',p.id))}</td>
      <td><button class="btn btn-sm btn-ghost" onclick="renomear('Pessoas','${p.id}')">Renomear</button></td></tr>`).join('')
     :'<tr><td colspan="3" class="empty"><strong>Nenhum fornecedor</strong>Opcional — dá para lançar só com a descrição.</td></tr>';
+}
+
+function renderOperadores(){
+  const l=DB.Operadores;
+  $('tbody-ops').innerHTML=l.length?l.map(o=>{
+    const ativo=o.ativo!==false;
+    const n=DB.Pagar.filter(t=>norm(t.operador)===norm(o.nome)).length;
+    return `<tr${ativo?'':' class="done"'}>
+      <td>${esc(o.nome)}${norm(o.nome)===norm(OPERADOR)?' <span class="cat-pct">(você)</span>':''}</td>
+      <td>${ativo?'<span class="c-ok">Ativo</span>':'<span style="color:var(--text-muted)">Desativado</span>'}</td>
+      <td class="num">${n}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="alternarOperador('${o.id}')">${ativo?'Desativar':'Reativar'}</button></td></tr>`;
+  }).join(''):'<tr><td colspan="4" class="empty"><strong>Nenhum operador cadastrado</strong>O primeiro é criado na tela de entrada.</td></tr>';
 }
 
 function renderLog(){
@@ -1567,7 +1674,8 @@ async function entrar(){
   S.url=u; load('Conectando');
   try{
     await apiGet({action:'ping'});
-    erro.classList.add('hidden'); closeModal('login'); $('cfg-url2').value=u; unload(); await sync();
+    erro.classList.add('hidden'); closeModal('login'); $('cfg-url2').value=u; unload();
+    await sync(); pedirOperador();
   }catch(e){
     S.url=''; erro.style.color='var(--danger)';
     erro.textContent=e.message+' — '+dicaErro(e.message); erro.classList.remove('hidden'); unload();
@@ -1584,7 +1692,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Operadores:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
@@ -1630,7 +1738,8 @@ $('login-url').value=URL_PADRAO;
 S.url=URL_PADRAO;
 if(URL_PADRAO) $('cfg-url2').value=URL_PADRAO;
 render();
-setTimeout(()=>$('op-nome').focus(),100);
+if(S.url){ sync().then(()=>pedirOperador()); }
+else { closeModal('modal-op'); $('login').classList.remove('hidden'); }
 </script>
 </body>
 </html>
