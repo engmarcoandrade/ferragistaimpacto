@@ -154,6 +154,19 @@ tr.cat-row td{border-bottom:1px solid var(--border);padding:10px}
 .saldo-input:focus{border-color:var(--primary);background:var(--surface)}
 .saldo-input.forte{font-weight:700}
 
+/* TAREFAS — concluída fica riscada e esmaecida, com marca d'água */
+tr.tarefa-ok td{color:var(--text-muted);background:var(--row-off)}
+tr.tarefa-ok .tf-txt{text-decoration:line-through;opacity:.55}
+tr.tarefa-ok .tf-num,tr.tarefa-ok .tf-resp,tr.tarefa-ok .tf-data{opacity:.5}
+td.tf-cell{position:relative}
+tr.tarefa-ok td.tf-cell::after{
+  content:'CONCLUÍDA';position:absolute;right:14px;top:50%;
+  transform:translateY(-50%) rotate(-8deg);
+  font-size:15px;font-weight:800;letter-spacing:2px;
+  color:var(--success);opacity:.16;pointer-events:none;white-space:nowrap}
+.tf-num{font-variant-numeric:tabular-nums;font-weight:700;color:var(--text-muted)}
+.tf-sub{font-size:11px;color:var(--text-muted)}
+
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9990;padding:16px}
 .modal{background:var(--surface);border-radius:12px;padding:24px;width:440px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.25)}
 .modal h3{font-size:16px;font-weight:700;margin-bottom:6px}
@@ -255,6 +268,24 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 </div>
 
+<!-- EDIÇÃO DE TAREFA -->
+<div id="modal-tarefa" class="overlay hidden">
+  <div class="modal">
+    <h3>Alterar tarefa</h3>
+    <p class="hint" id="tf-edit-sub"></p>
+    <div class="form-row">
+      <div class="form-field" style="max-width:160px"><label>Data</label><input type="date" id="tf-e-data"></div>
+      <div class="form-field"><label>Responsável</label>
+        <input id="tf-e-resp" list="lista-resp" autocomplete="off"></div>
+    </div>
+    <div class="form-field" style="margin-top:10px"><label>Tarefa</label><input id="tf-e-desc"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-tarefa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTarefa()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIÇÃO -->
 <div id="modal-edit" class="overlay hidden">
   <div class="modal">
@@ -309,6 +340,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   <button class="tab-link active" data-tab="Painel">Painel</button>
   <button class="tab-link" data-tab="Pagar">Contas a Pagar <span id="badge-pagar" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Fluxo">Fluxo de Caixa</button>
+  <button class="tab-link" data-tab="Tarefas">Tarefas <span id="badge-tarefas" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Cadastros">Cadastros</button>
   <button class="tab-link" data-tab="Config">Config</button>
 </div></nav>
@@ -349,6 +381,37 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
     <p style="font-size:12px;color:var(--text-muted);margin-top:12px">
       "Entradas previstas" vem das contas a receber lançadas na outra aplicação, sobre a mesma planilha.
       Compra que ainda não foi registrada não aparece aqui.</p>
+  </div>
+</section>
+
+<section id="tab-Tarefas" class="tab-content">
+  <div class="card">
+    <h2>Nova tarefa</h2>
+    <div class="form-row">
+      <div class="form-field" style="max-width:150px"><label>Data</label><input type="date" id="tf-data"></div>
+      <div class="form-field" style="flex:3"><label>Tarefa</label>
+        <input id="tf-desc" placeholder="O que precisa ser feito" onkeydown="if(event.key==='Enter')addTarefa()"></div>
+      <div class="form-field" style="max-width:220px"><label>Responsável</label>
+        <input id="tf-resp" list="lista-resp" placeholder="Quem vai fazer" autocomplete="off">
+        <datalist id="lista-resp"></datalist></div>
+      <button class="btn btn-primary" onclick="addTarefa()">Incluir</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="strip" id="tf-resumo"></div>
+    <div class="filters" id="tf-filtros"></div>
+  </div>
+
+  <div class="card" style="padding:0">
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:52px">Nº</th><th style="width:40px">✔</th>
+        <th style="width:110px">Data</th><th>Tarefa</th>
+        <th style="width:150px">Responsável</th><th style="width:90px">Ações</th>
+      </tr></thead>
+      <tbody id="tbody-tarefas"></tbody>
+    </table></div>
   </div>
 </section>
 
@@ -473,6 +536,10 @@ const SCHEMA = {
 
   Operadores: ['id', 'nome', 'ativo', 'criado_em'],
 
+  Tarefas: ['id', 'seq', 'data', 'descricao', 'responsavel', 'concluida',
+            'data_conclusao', 'concluida_por', 'excluida', 'operador',
+            'criado_em', 'atualizado_em'],
+
   Receber: ['id', 'emissao', 'vencimento', 'pessoa_id', 'descricao', 'categoria_id',
             'valor', 'forma_pgto', 'parcela', 'total_parcelas', 'status',
             'data_baixa', 'valor_recebido', 'taxa', 'conta_id', 'documento',
@@ -537,7 +604,8 @@ function doGet(e) {
           return respond_({ status: 'ok', entity: p.entity, data: readEntity_(p.entity) });
         }
         const out = {};
-        ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Receber', 'Pagar', 'Movimentos', 'Log']
+        ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Tarefas',
+         'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(n => out[n] = readEntity_(n));
         out.Config = config_();
         return respond_({ status: 'ok', data: out });
@@ -683,6 +751,9 @@ function upsert_(entidade, registro) {
   const linha = acharLinha_(sh, registro.id);
 
   if (linha === -1) {
+    // Sequencial só pode ser calculado aqui: o doPost roda sob LockService,
+    // então dois operadores simultâneos nunca recebem o mesmo número.
+    if (cols.indexOf('seq') > -1 && !registro.seq) registro.seq = proximoSeq_(sh, cols);
     if (cols.indexOf('criado_em') > -1 && !registro.criado_em) registro.criado_em = agora;
     if (cols.indexOf('status') > -1 && !registro.status) registro.status = 'Aberto';
     if (cols.indexOf('operador') > -1 && !registro.operador) registro.operador = OPERADOR;
@@ -806,6 +877,20 @@ function estornar_(entidade, id) {
 
 /* ═══════════════ AUXILIARES ═══════════════ */
 
+/** Maior sequencial já usado na aba, mais um. Nunca reaproveita número. */
+function proximoSeq_(sh, cols) {
+  const ultima = sh.getLastRow();
+  if (ultima < 2) return 1;
+  const col = cols.indexOf('seq') + 1;
+  const vals = sh.getRange(2, col, ultima - 1, 1).getValues();
+  let max = 0;
+  vals.forEach(function (v) {
+    const n = Number(v[0]);
+    if (!isNaN(n) && n > max) max = n;
+  });
+  return max + 1;
+}
+
 function acharLinha_(sh, id) {
   const ultima = sh.getLastRow();
   if (ultima < 2) return -1;
@@ -819,7 +904,7 @@ function acharLinha_(sh, id) {
 function novoId_(entidade) {
   const prefixo = { Receber: 'REC', Pagar: 'PAG', Pessoas: 'PES',
                     Categorias: 'CAT', Contas: 'CTA', Movimentos: 'MOV',
-                    Operadores: 'OPE' }[entidade] || 'REG';
+                    Operadores: 'OPE', Tarefas: 'TAR' }[entidade] || 'REG';
   return prefixo + '-' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyMMdd') +
          '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
 }
@@ -852,10 +937,12 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Tarefas:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
+let filtroTarefa='pendentes';
+let tarefaCtx=null;
 let marcados=new Set();
 let baixaCtx=null, editCtx=null;
 
@@ -1061,7 +1148,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderOperadores(); renderLog(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderOperadores(); renderLog(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 function renderBadge(){
@@ -1349,6 +1436,111 @@ function renderCadastros(){
     `<tr><td>${esc(p.nome)}</td><td class="num">${money(emAbertoPor('pessoa_id',p.id))}</td>
      <td><button class="btn btn-sm btn-ghost" onclick="renomear('Pessoas','${p.id}')">Renomear</button></td></tr>`).join('')
     :'<tr><td colspan="3" class="empty"><strong>Nenhum fornecedor</strong>Opcional — dá para lançar só com a descrição.</td></tr>';
+}
+
+/* ═══════════ TAREFAS ═══════════ */
+const tarefasVivas = () => (DB.Tarefas||[]).filter(t=>t.excluida!==true && t.excluida!=='TRUE');
+const tarefaFeita  = t => t.concluida===true || t.concluida==='TRUE';
+
+function renderTarefas(){
+  const todas=tarefasVivas();
+  const pend=todas.filter(t=>!tarefaFeita(t));
+  const feitas=todas.filter(tarefaFeita);
+
+  const cont={todas:todas.length,pendentes:pend.length,concluidas:feitas.length};
+  const fs=[['todas','Todas'],['pendentes','Pendentes'],['concluidas','Concluídas']];
+  $('tf-filtros').innerHTML=fs.map(([k,l])=>
+    `<button class="${filtroTarefa===k?'active':''}" onclick="setFiltroTarefa('${k}')">${l}${cont[k]?` <span class="cont">${cont[k]}</span>`:''}</button>`).join('');
+
+  $('tf-resumo').innerHTML=`<span>Pendentes: <strong class="${pend.length?'c-warn':'c-ok'}">${pend.length}</strong></span>
+    <span>Concluídas: <strong class="c-ok">${feitas.length}</strong></span>`;
+
+  // Sugestões de responsável a partir dos operadores cadastrados
+  $('lista-resp').innerHTML=opsAtivos().map(o=>`<option value="${esc(o.nome)}">`).join('');
+
+  let lista = filtroTarefa==='pendentes' ? pend : filtroTarefa==='concluidas' ? feitas : todas;
+  // Pendentes primeiro, e dentro de cada grupo a data mais antiga no topo
+  lista=[...lista].sort((a,b)=>{
+    const fa=tarefaFeita(a)?1:0, fb=tarefaFeita(b)?1:0;
+    if(fa!==fb) return fa-fb;
+    return String(a.data).localeCompare(String(b.data)) || Number(a.seq||0)-Number(b.seq||0);
+  });
+
+  $('tbody-tarefas').innerHTML = lista.length ? lista.map(t=>{
+    const ok=tarefaFeita(t);
+    const sub=ok&&t.data_conclusao?`concluída ${brDate(t.data_conclusao)}${t.concluida_por?' por '+esc(t.concluida_por):''}`:'';
+    return `<tr class="${ok?'tarefa-ok':''}">
+      <td class="tf-num">${esc(t.seq||'—')}</td>
+      <td class="chk"><input type="checkbox" ${ok?'checked':''} onchange="concluirTarefa('${t.id}',this.checked)"></td>
+      <td class="tf-data venc">${brDate(t.data)}</td>
+      <td class="tf-cell"><span class="tf-txt">${esc(t.descricao)}</span>
+        ${sub?`<div class="tf-sub">${sub}</div>`:''}</td>
+      <td class="tf-resp">${esc(t.responsavel||'—')}</td>
+      <td><div class="acoes">
+        <button class="btn btn-sm btn-ghost" onclick="abrirTarefa('${t.id}')" title="Alterar">✎</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirTarefa('${t.id}')" title="Excluir">×</button>
+      </div></td></tr>`;
+  }).join('')
+   : `<tr><td colspan="6" class="empty"><strong>${filtroTarefa==='concluidas'?'Nenhuma tarefa concluída':'Nenhuma tarefa'}</strong>Inclua a primeira no formulário acima.</td></tr>`;
+
+  const b=$('badge-tarefas');
+  b.textContent=pend.length; b.classList.toggle('hidden',pend.length===0);
+}
+function setFiltroTarefa(f){ filtroTarefa=f; renderTarefas(); }
+
+async function addTarefa(){
+  const data=$('tf-data').value||hoje();
+  const desc=$('tf-desc').value.trim();
+  const resp=$('tf-resp').value.trim();
+  if(!desc) return toast('Escreva a tarefa.','error');
+  load('Gravando');
+  // seq fica em branco de propósito: quem numera é o servidor
+  if(await push('Tarefas',{data,descricao:desc,responsavel:resp,concluida:false,excluida:false})){
+    $('tf-desc').value=''; $('tf-resp').value='';
+    toast('Tarefa incluída.','success'); await sync();
+    setTimeout(()=>$('tf-desc').focus(),100);
+  }
+  unload();
+}
+
+async function concluirTarefa(id,marcada){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  load(marcada?'Concluindo':'Reabrindo');
+  const rec = marcada
+    ? {id,concluida:true,data_conclusao:hoje(),concluida_por:OPERADOR}
+    : {id,concluida:false,data_conclusao:'',concluida_por:''};
+  if(await push('Tarefas',rec)){
+    toast(marcada?'Tarefa concluída.':'Tarefa reaberta.','success'); await sync();
+  } else { renderTarefas(); }
+  unload();
+}
+
+function abrirTarefa(id){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  tarefaCtx={id};
+  $('tf-edit-sub').textContent=`Tarefa nº ${t.seq||'—'}`;
+  $('tf-e-data').value=String(t.data).slice(0,10);
+  $('tf-e-desc').value=t.descricao||'';
+  $('tf-e-resp').value=t.responsavel||'';
+  $('modal-tarefa').classList.remove('hidden');
+}
+async function salvarTarefa(){
+  if(!tarefaCtx) return;
+  const desc=$('tf-e-desc').value.trim();
+  if(!desc) return toast('A tarefa não pode ficar sem texto.','error');
+  closeModal('modal-tarefa'); load('Gravando');
+  if(await push('Tarefas',{id:tarefaCtx.id,data:$('tf-e-data').value,
+      descricao:desc,responsavel:$('tf-e-resp').value.trim()})){
+    toast('Tarefa alterada.','success'); await sync();
+  }
+  unload(); tarefaCtx=null;
+}
+async function excluirTarefa(id){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  if(!confirm(`Excluir a tarefa nº ${t.seq}?\n\n"${t.descricao}"\n\nEla some da lista, mas a linha fica guardada na planilha.`)) return;
+  load('Excluindo');
+  if(await push('Tarefas',{id,excluida:true})){ toast('Tarefa excluída.','success'); await sync(); }
+  unload();
 }
 
 function renderOperadores(){
@@ -1692,7 +1884,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Operadores:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Operadores:[],Tarefas:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
@@ -1734,6 +1926,7 @@ document.querySelectorAll('.tab-link').forEach(b=>b.onclick=()=>{
 });
 $('script-box').textContent=$('gs-source').textContent;
 $('script-box2').textContent=$('gs-source').textContent;
+$('tf-data').value=hoje();
 $('login-url').value=URL_PADRAO;
 S.url=URL_PADRAO;
 if(URL_PADRAO) $('cfg-url2').value=URL_PADRAO;
