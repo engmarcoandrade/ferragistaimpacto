@@ -136,6 +136,17 @@ tr.cat-row td{border-bottom:1px solid var(--border);padding:6px 9px}
   background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--warning);
   border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
 .aviso.urgente{border-left-color:var(--danger)}
+.aviso-erro{background:#7f1d1d;color:#fff;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px}
+.aviso-erro strong{display:block;margin-bottom:4px}
+.mh-bloco{margin-bottom:14px}
+.mh-tit{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.mh-tit.atraso{color:var(--danger)} .mh-tit.hoje{color:var(--warning)} .mh-tit.amanha{color:var(--primary)}
+.mh-item{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px}
+.mh-item:last-child{border-bottom:none}
+.mh-item .v{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.mh-total{display:flex;justify-content:space-between;border-top:2px solid var(--border);padding-top:8px;margin-top:10px;font-weight:700}
+.erro-inline{background:rgba(192,57,43,.12);border:1px solid var(--danger);color:var(--danger);
+  border-radius:6px;padding:9px 12px;font-size:12px;font-weight:600;margin-top:12px}
 .aviso-txt strong{font-size:13px;display:block;margin-bottom:3px}
 .aviso-itens{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;align-items:center}
 .aviso-itens .sep{color:var(--border)}
@@ -268,6 +279,19 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 </div>
 
+<!-- RESUMO DE ABERTURA -->
+<div id="modal-hoje" class="overlay hidden">
+  <div class="modal" style="width:560px">
+    <h3 id="mh-titulo">Pagamentos de hoje e amanhã</h3>
+    <p class="hint" id="mh-sub"></p>
+    <div id="mh-corpo"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-hoje')">Fechar</button>
+      <button class="btn btn-primary" onclick="closeModal('modal-hoje');irPara('open')">Ver contas a pagar</button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIÇÃO DE TAREFA -->
 <div id="modal-tarefa" class="overlay hidden">
   <div class="modal">
@@ -346,6 +370,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
 </div></nav>
 
 <main>
+<div id="aviso-versao" class="hidden"></div>
 <div id="aviso-dia" class="hidden"></div>
 
 <section id="tab-Painel" class="tab-content">
@@ -396,6 +421,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
         <datalist id="lista-resp"></datalist></div>
       <button class="btn btn-primary" onclick="addTarefa()">Incluir</button>
     </div>
+    <div id="tf-erro" class="hidden erro-inline"></div>
   </div>
 
   <div class="toolbar">
@@ -482,6 +508,27 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 
   <div class="card">
+    <h2>Aviso diário <span class="sub">contas do dia e do dia seguinte</span></h2>
+    <div class="form-row">
+      <div class="form-field"><label>Nome</label><input id="ct-c-nome" placeholder="Nome da pessoa"></div>
+      <div class="form-field" style="flex:2"><label>E-mail</label><input id="ct-c-email" type="email" placeholder="pessoa@email.com"></div>
+      <div class="form-field"><label>Telegram ID</label><input id="ct-c-tg" placeholder="opcional"></div>
+      <button class="btn btn-primary" onclick="addContato()">Adicionar</button>
+    </div>
+    <div class="table-wrap" style="margin-top:14px"><table>
+      <thead><tr><th>Nome</th><th>E-mail</th><th>Telegram</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="tbody-contatos"></tbody></table></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="btn btn-ghost" onclick="enviarAvisoAgora()">Enviar agora (teste)</button>
+      <button class="btn btn-ghost" onclick="instalarAviso()">Ligar envio automático</button>
+      <button class="btn btn-ghost" onclick="removerAviso()">Desligar envio automático</button>
+    </div>
+    <p id="aviso-diag" style="font-size:12px;color:var(--text-muted);margin-top:10px">
+      O envio automático roda uma vez por dia. A hora fica na aba Config da planilha, chave <code>aviso_hora</code>.
+      Para usar Telegram, preencha <code>telegram_token</code> na mesma aba.</p>
+  </div>
+
+  <div class="card">
     <h2>Últimas ações <span class="sub">quem fez o quê</span></h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Quando</th><th>Operador</th><th>Ação</th><th>Detalhe</th></tr></thead>
@@ -525,6 +572,18 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
 // Quem está operando nesta requisição. Preenchido pelo doPost, usado no Log.
 var OPERADOR = '';
 
+// Cache válido só durante UMA requisição (doGet/doPost). Evita reler o
+// cabeçalho da mesma aba várias vezes na mesma chamada — é a maior
+// fonte de lentidão do script, porque cada leitura ao Sheets custa
+// de 100 a 300ms e uma sincronização completa toca 10 abas.
+var _cacheSheet = {};
+var _cacheHeaders = {};
+function resetCache_() { _cacheSheet = {}; _cacheHeaders = {}; }
+
+// Suba este número sempre que o SCHEMA mudar. O app avisa se o que
+// está publicado for mais antigo do que ele espera.
+const VERSAO = 6;
+
 const SCHEMA = {
   Config: ['chave', 'valor'],
 
@@ -535,6 +594,8 @@ const SCHEMA = {
   Pessoas: ['id', 'tipo', 'nome', 'documento', 'telefone', 'prazo_padrao', 'obs', 'ativo'],
 
   Operadores: ['id', 'nome', 'ativo', 'criado_em'],
+
+  Contatos: ['id', 'nome', 'email', 'telegram_id', 'ativo', 'criado_em'],
 
   Tarefas: ['id', 'seq', 'data', 'descricao', 'responsavel', 'concluida',
             'data_conclusao', 'concluida_por', 'excluida', 'operador',
@@ -563,6 +624,8 @@ const CONFIG_PADRAO = [
   ['alerta_teto_pct', 80],
   ['moeda', 'BRL'],
   ['planilha_url', ''],
+  ['aviso_hora', 7],
+  ['telegram_token', ''],
 ];
 
 
@@ -589,26 +652,34 @@ function setup() {
 /* ═══════════════ ENDPOINTS ═══════════════ */
 
 function doGet(e) {
+  resetCache_();
   try {
     const p = e.parameter || {};
 
     switch (p.action) {
       case 'ping': {
         const c = config_();
-        return respond_({ status: 'ok', empresa: c.empresa, planilha_url: c.planilha_url, versao: 3 });
+        return respond_({ status: 'ok', empresa: c.empresa, planilha_url: c.planilha_url, versao: VERSAO });
       }
 
       case 'read': {
         // ?entity=Receber  → só uma aba;  sem entity → tudo
         if (p.entity) {
-          return respond_({ status: 'ok', entity: p.entity, data: readEntity_(p.entity) });
+          return respond_({ status: 'ok', entity: p.entity, data: readEntity_(p.entity), versao: VERSAO });
         }
-        const out = {};
-        ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Tarefas',
+        const out = {}, avisos = [];
+        // Cada aba é lida isoladamente: se UMA falhar (ex.: script ainda não
+        // republicado e a aba nova não existe), as outras continuam
+        // funcionando normalmente em vez de derrubar a sincronização inteira.
+        ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Tarefas', 'Contatos',
          'Receber', 'Pagar', 'Movimentos', 'Log']
-          .forEach(n => out[n] = readEntity_(n));
-        out.Config = config_();
-        return respond_({ status: 'ok', data: out });
+          .forEach(function (n) {
+            try { out[n] = readEntity_(n); }
+            catch (err) { out[n] = []; avisos.push(n + ': ' + String(err.message || err)); }
+          });
+        try { out.Config = config_(); } catch (err) { out.Config = {}; avisos.push('Config: ' + String(err)); }
+        return respond_({ status: 'ok', data: out, versao: VERSAO,
+                          avisos: avisos.length ? avisos : undefined });
       }
 
       default:
@@ -620,6 +691,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  resetCache_();
   const lock = LockService.getScriptLock();
   try {
     // Espera até 25s pela vez de escrever — resolve dois usuários simultâneos
@@ -645,8 +717,38 @@ function doPost(e) {
       case 'baixa':
         return respond_({ status: 'ok', record: baixa_(body) });
 
+      case 'baixaMany': {
+        // Mesmo lote, mesma trava: todos os pagamentos ou nenhum fica pela metade.
+        const itens = body.itens || [];
+        const feitos = [], falhas = [];
+        itens.forEach(function (it) {
+          try { feitos.push(baixa_(Object.assign({ entity: body.entity }, it))); }
+          catch (e) { falhas.push({ id: it.id, erro: String(e.message || e) }); }
+        });
+        return respond_({ status: 'ok', feitos: feitos, falhas: falhas });
+      }
+
+      case 'cancelMany': {
+        const ids = body.ids || [];
+        const feitos = [], falhas = [];
+        ids.forEach(function (id) {
+          try { feitos.push(setStatus_(body.entity, id, 'Cancelado')); }
+          catch (e) { falhas.push({ id: id, erro: String(e.message || e) }); }
+        });
+        return respond_({ status: 'ok', feitos: feitos, falhas: falhas });
+      }
+
       case 'estornar':
         return respond_({ status: 'ok', record: estornar_(body.entity, body.id) });
+
+      case 'enviarAviso':
+        return respond_({ status: 'ok', resultado: enviarAvisoDiario() });
+
+      case 'instalarAviso':
+        return respond_({ status: 'ok', resultado: instalarAvisoDiario() });
+
+      case 'removerAviso':
+        return respond_({ status: 'ok', resultado: removerAvisoDiario() });
 
       case 'setConfig':
         return respond_({ status: 'ok', config: setConfig_(body.chave, body.valor) });
@@ -669,6 +771,8 @@ function doPost(e) {
  * Assim a planilha se conserta sozinha e rodar setup() vira opcional.
  */
 function sheet_(nome) {
+  if (_cacheSheet[nome]) return _cacheSheet[nome];
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Este script não está ligado a nenhuma planilha. Ele precisa ser criado por Extensões → Apps Script de dentro do Google Sheets.');
 
@@ -676,7 +780,10 @@ function sheet_(nome) {
   let sh = ss.getSheetByName(nome);
 
   if (sh) {
-    if (cols) garantirColunas_(sh, cols);
+    // garantirColunas_ já lê o cabeçalho para comparar; aproveitamos essa
+    // mesma leitura para preencher o cache em vez de ler de novo depois.
+    if (cols) _cacheHeaders[nome] = garantirColunas_(sh, cols);
+    _cacheSheet[nome] = sh;
     return sh;
   }
 
@@ -690,6 +797,8 @@ function sheet_(nome) {
   if (nome === 'Config') {
     sh.getRange(2, 1, CONFIG_PADRAO.length, 2).setValues(CONFIG_PADRAO);
   }
+  _cacheHeaders[nome] = cols.slice();
+  _cacheSheet[nome] = sh;
   return sh;
 }
 
@@ -701,13 +810,18 @@ function garantirColunas_(sh, cols) {
   const largura = sh.getLastColumn();
   const atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(String) : [];
   const faltando = cols.filter(c => atuais.indexOf(c) === -1);
-  if (!faltando.length) return;
+  if (!faltando.length) return atuais;
   sh.getRange(1, atuais.length + 1, 1, faltando.length).setValues([faltando])
     .setFontWeight('bold').setBackground('#e8eaed');
+  return atuais.concat(faltando);
 }
 
 function headers_(sh) {
-  return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const nome = sh.getName();
+  if (_cacheHeaders[nome]) return _cacheHeaders[nome];
+  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  _cacheHeaders[nome] = h;
+  return h;
 }
 
 function readEntity_(nome) {
@@ -745,10 +859,14 @@ function upsert_(entidade, registro) {
   const cols = headers_(sh);
   const agora = new Date().toISOString();
 
+  // Só faz sentido procurar a linha se o chamador mandou um id (edição).
+  // Um id gerado agora mesmo, por definição, não existe ainda na planilha —
+  // procurá-lo é uma varredura inteira da coluna, sem propósito.
+  const idVeioDeFora = !!registro.id;
   if (!registro.id) registro.id = novoId_(entidade);
   if (cols.indexOf('atualizado_em') > -1) registro.atualizado_em = agora;
 
-  const linha = acharLinha_(sh, registro.id);
+  const linha = idVeioDeFora ? acharLinha_(sh, registro.id) : -1;
 
   if (linha === -1) {
     // Sequencial só pode ser calculado aqui: o doPost roda sob LockService,
@@ -875,6 +993,130 @@ function estornar_(entidade, id) {
 }
 
 
+/* ═══════════════ AVISO DIÁRIO ═══════════════ */
+
+/**
+ * Monta o resumo do que vence hoje e amanhã, mais o que está em atraso.
+ * Devolve texto puro e HTML — o mesmo conteúdo serve para e-mail e Telegram.
+ */
+function montarAviso_() {
+  const tz = 'America/Sao_Paulo';
+  const fmt = d => Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+  const br  = iso => String(iso).slice(0, 10).split('-').reverse().join('/');
+  const dinheiro = v => 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',');
+
+  const agora = new Date();
+  const hoje = fmt(agora);
+  const amanha = fmt(new Date(agora.getTime() + 86400000));
+
+  const abertos = readEntity_('Pagar').filter(function (t) { return t.status === 'Aberto'; });
+  const pessoas = readEntity_('Pessoas');
+  const nome = function (id) {
+    const p = pessoas.filter(function (x) { return x.id === id; })[0];
+    return p ? p.nome : '';
+  };
+
+  const deHoje   = abertos.filter(function (t) { return String(t.vencimento).slice(0,10) === hoje; });
+  const deAmanha = abertos.filter(function (t) { return String(t.vencimento).slice(0,10) === amanha; });
+  const atrasados= abertos.filter(function (t) { return String(t.vencimento).slice(0,10) <  hoje; });
+
+  const soma = a => a.reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
+  if (!deHoje.length && !deAmanha.length && !atrasados.length) {
+    return { vazio: true, qtd: 0, texto: '', html: '', assunto: '' };
+  }
+
+  const bloco = function (titulo, arr) {
+    if (!arr.length) return { txt: '', html: '' };
+    arr.sort(function (a, b) { return String(a.vencimento).localeCompare(String(b.vencimento)); });
+    const linhas = arr.map(function (t) {
+      const forn = nome(t.pessoa_id);
+      return '• ' + dinheiro(t.valor) + ' — ' + t.descricao + (forn ? ' (' + forn + ')' : '')
+           + ' — vence ' + br(t.vencimento);
+    });
+    return {
+      txt: titulo + ' — ' + arr.length + ' conta(s), ' + dinheiro(soma(arr)) + '\n' + linhas.join('\n') + '\n',
+      html: '<p style="margin:14px 0 6px"><b>' + titulo + '</b> — ' + arr.length
+          + ' conta(s), <b>' + dinheiro(soma(arr)) + '</b></p><ul style="margin:0;padding-left:18px">'
+          + linhas.map(function (l) { return '<li>' + l.substring(2) + '</li>'; }).join('') + '</ul>'
+    };
+  };
+
+  const bAtras = bloco('EM ATRASO', atrasados);
+  const bHoje  = bloco('VENCE HOJE', deHoje);
+  const bAma   = bloco('VENCE AMANHÃ', deAmanha);
+  const total  = soma(atrasados) + soma(deHoje) + soma(deAmanha);
+
+  const assunto = 'Ferragista Impacto — contas a pagar: ' + deHoje.length + ' hoje, '
+                + deAmanha.length + ' amanhã' + (atrasados.length ? ', ' + atrasados.length + ' em atraso' : '');
+
+  const texto = 'CONTAS A PAGAR — ' + br(hoje) + '\n\n'
+              + bAtras.txt + bHoje.txt + bAma.txt
+              + '\nTotal listado: ' + dinheiro(total);
+
+  const html = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">'
+             + '<h2 style="margin:0 0 4px">Contas a pagar</h2>'
+             + '<div style="color:#666">' + br(hoje) + '</div>'
+             + bAtras.html + bHoje.html + bAma.html
+             + '<p style="margin-top:16px"><b>Total listado: ' + dinheiro(total) + '</b></p></div>';
+
+  return { vazio: false, qtd: atrasados.length + deHoje.length + deAmanha.length,
+           texto: texto, html: html, assunto: assunto };
+}
+
+/** Envia o resumo para todos os contatos ativos. Rodado pelo gatilho diário. */
+function enviarAvisoDiario() {
+  const aviso = montarAviso_();
+  if (aviso.vazio) { log_('aviso', 'Contatos', '-', 'nada a avisar'); return 'Nada a avisar hoje.'; }
+
+  const contatos = readEntity_('Contatos').filter(function (c) { return c.ativo !== false; });
+  if (!contatos.length) return 'Nenhum contato ativo cadastrado.';
+
+  const token = String(config_().telegram_token || '');
+  let emails = 0, telegrams = 0, falhas = [];
+
+  contatos.forEach(function (c) {
+    if (c.email) {
+      try {
+        MailApp.sendEmail({ to: String(c.email), subject: aviso.assunto,
+                            body: aviso.texto, htmlBody: aviso.html });
+        emails++;
+      } catch (e) { falhas.push(c.nome + ' (e-mail): ' + e.message); }
+    }
+    if (c.telegram_id && token) {
+      try {
+        const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+          method: 'post', muteHttpExceptions: true,
+          payload: { chat_id: String(c.telegram_id), text: aviso.texto }
+        });
+        if (r.getResponseCode() === 200) telegrams++;
+        else falhas.push(c.nome + ' (telegram): ' + r.getContentText().slice(0, 120));
+      } catch (e) { falhas.push(c.nome + ' (telegram): ' + e.message); }
+    }
+  });
+
+  const resumo = emails + ' e-mail(s), ' + telegrams + ' telegram(s)'
+               + (falhas.length ? ' · falhas: ' + falhas.join(' | ') : '');
+  log_('aviso', 'Contatos', '-', resumo);
+  return resumo;
+}
+
+/** Cria o gatilho diário. Precisa ser rodado uma vez pelo editor do Apps Script. */
+function instalarAvisoDiario() {
+  removerAvisoDiario();
+  const hora = Number(config_().aviso_hora) || 7;
+  ScriptApp.newTrigger('enviarAvisoDiario').timeBased().everyDays(1).atHour(hora).create();
+  log_('aviso', 'Gatilho', '-', 'instalado para ' + hora + 'h');
+  return 'Aviso diário instalado para ' + hora + 'h.';
+}
+
+function removerAvisoDiario() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'enviarAvisoDiario') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  return n ? 'Gatilho removido.' : 'Nenhum gatilho ativo.';
+}
+
 /* ═══════════════ AUXILIARES ═══════════════ */
 
 /** Maior sequencial já usado na aba, mais um. Nunca reaproveita número. */
@@ -904,7 +1146,8 @@ function acharLinha_(sh, id) {
 function novoId_(entidade) {
   const prefixo = { Receber: 'REC', Pagar: 'PAG', Pessoas: 'PES',
                     Categorias: 'CAT', Contas: 'CTA', Movimentos: 'MOV',
-                    Operadores: 'OPE', Tarefas: 'TAR' }[entidade] || 'REG';
+                    Operadores: 'OPE', Tarefas: 'TAR',
+                    Contatos: 'CTT' }[entidade] || 'REG';
   return prefixo + '-' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyMMdd') +
          '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
 }
@@ -936,8 +1179,10 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
+const VERSAO_ESPERADA = 6;
+let versaoScript = null;
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Tarefas:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Tarefas:[], Contatos:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
@@ -1046,6 +1291,7 @@ async function definirOperador(){
   $('op-erro').classList.add('hidden');
   closeModal('modal-op');
   await sync();
+  if(loaded) mostrarPopupDoDia();
 }
 function trocarOperador(){
   if(!loaded) return toast('Conecte à planilha primeiro.','error');
@@ -1110,9 +1356,13 @@ async function sync(){
   try{
     const j=await apiGet({action:'read'});
     DB={...DB,...j.data};
+    versaoScript = j.versao!=null ? Number(j.versao) : versaoScript;
     loaded=true; $('banner').classList.add('hidden'); setStatus('online');
     marcados.clear();
     render();
+    if(j.avisos && j.avisos.length){
+      toast('Algumas abas não carregaram: '+j.avisos.join(' · ')+'. Provavelmente falta republicar o script.','error',12000);
+    }
   }catch(e){
     loaded=false; setStatus('off');
     $('banner').classList.remove('hidden');
@@ -1148,9 +1398,115 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderOperadores(); renderLog(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderOperadores(); renderContatos(); renderLog(); renderVersao(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
+/* ═══════════ POPUP DE ABERTURA + AVISO DIÁRIO ═══════════ */
+const amanha = () => addDays(1);
+
+function dadosDoDia(){
+  const ab=abertos(vivos());
+  return {
+    atraso: ab.filter(vencido).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))),
+    hoje:   ab.filter(t=>String(t.vencimento).slice(0,10)===hoje()),
+    amanha: ab.filter(t=>String(t.vencimento).slice(0,10)===amanha()),
+  };
+}
+
+/** Popup de abertura. Só aparece se houver algo — não incomoda em dia tranquilo. */
+function mostrarPopupDoDia(){
+  const d=dadosDoDia();
+  const qtd=d.atraso.length+d.hoje.length+d.amanha.length;
+  if(!qtd) return;
+
+  const bloco=(titulo,cls,arr)=>{
+    if(!arr.length) return '';
+    return `<div class="mh-bloco">
+      <div class="mh-tit ${cls}">${titulo} — ${arr.length} conta(s) · ${money(soma(arr))}</div>
+      ${arr.map(t=>`<div class="mh-item">
+        <span>${esc(t.descricao)}${t.pessoa_id?` <span style="color:var(--text-muted)">· ${esc(nomePessoa(t.pessoa_id))}</span>`:''}
+          <span style="color:var(--text-muted)"> · ${brDate(t.vencimento)}</span></span>
+        <span class="v">${money(t.valor)}</span></div>`).join('')}
+    </div>`;
+  };
+
+  const total=soma(d.atraso)+soma(d.hoje)+soma(d.amanha);
+  $('mh-sub').textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  $('mh-titulo').textContent=d.atraso.length?'⚠ Há contas em atraso':'Pagamentos de hoje e amanhã';
+  $('mh-corpo').innerHTML=bloco('Em atraso','atraso',d.atraso)
+    +bloco('Vence hoje','hoje',d.hoje)
+    +bloco('Vence amanhã','amanha',d.amanha)
+    +`<div class="mh-total"><span>Total listado</span><span>${money(total)}</span></div>`;
+  $('modal-hoje').classList.remove('hidden');
+}
+
+function renderContatos(){
+  const l=DB.Contatos||[];
+  $('tbody-contatos').innerHTML=l.length?l.map(c=>{
+    const ativo=c.ativo!==false;
+    return `<tr${ativo?'':' class="done"'}>
+      <td>${esc(c.nome)}</td><td>${esc(c.email||'—')}</td><td>${esc(c.telegram_id||'—')}</td>
+      <td>${ativo?'<span class="c-ok">Ativo</span>':'<span style="color:var(--text-muted)">Desativado</span>'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="alternarContato('${c.id}')">${ativo?'Desativar':'Reativar'}</button></td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="empty"><strong>Nenhum contato</strong>Cadastre quem deve receber o aviso diário.</td></tr>';
+}
+
+async function addContato(){
+  const nome=$('ct-c-nome').value.trim(), email=$('ct-c-email').value.trim(), tg=$('ct-c-tg').value.trim();
+  if(!nome) return toast('Informe o nome.','error');
+  if(!email && !tg) return toast('Informe pelo menos um e-mail ou um Telegram ID.','error');
+  if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('E-mail inválido.','error');
+  load('Gravando');
+  if(await push('Contatos',{nome,email,telegram_id:tg,ativo:true,criado_em:hoje()})){
+    ['ct-c-nome','ct-c-email','ct-c-tg'].forEach(i=>$(i).value='');
+    toast('Contato adicionado.','success'); await sync();
+  }
+  unload();
+}
+async function alternarContato(id){
+  const c=DB.Contatos.find(x=>x.id===id); if(!c) return;
+  const ativo=c.ativo!==false;
+  load('Gravando');
+  if(await push('Contatos',{id,ativo:!ativo})){ toast(ativo?'Contato desativado.':'Contato reativado.','success'); await sync(); }
+  unload();
+}
+async function enviarAvisoAgora(){
+  load('Enviando');
+  try{ const j=await apiPost({action:'enviarAviso'});
+    $('aviso-diag').textContent='Resultado: '+j.resultado;
+    toast('Envio disparado.','success');
+  }catch(e){ $('aviso-diag').textContent='Falhou: '+e.message+' — '+dicaEnvio(e.message); toast('Falhou: '+e.message,'error',9000); }
+  finally{ unload(); }
+}
+async function instalarAviso(){
+  load('Instalando');
+  try{ const j=await apiPost({action:'instalarAviso'});
+    $('aviso-diag').textContent=j.resultado; toast(j.resultado,'success',7000);
+  }catch(e){ $('aviso-diag').textContent='Falhou: '+e.message+' — '+dicaEnvio(e.message); toast('Falhou: '+e.message,'error',9000); }
+  finally{ unload(); }
+}
+async function removerAviso(){
+  load('Removendo');
+  try{ const j=await apiPost({action:'removerAviso'}); $('aviso-diag').textContent=j.resultado; toast(j.resultado,'success'); }
+  catch(e){ toast('Falhou: '+e.message,'error',9000); }
+  finally{ unload(); }
+}
+function dicaEnvio(m){
+  if(/authorization|permission|scope|autoriza/i.test(String(m)))
+    return 'Falta autorizar o envio de e-mail. Abra o Apps Script, escolha a função enviarAvisoDiario no seletor do topo, clique em Executar e autorize. Depois republique.';
+  return 'Confira se o script foi republicado com Versão: Nova versão.';
+}
+
+function renderVersao(){
+  const box=$('aviso-versao');
+  if(versaoScript===null || versaoScript>=VERSAO_ESPERADA){ box.classList.add('hidden'); return; }
+  box.className='aviso-erro';
+  box.innerHTML=`<strong>⚠ O script na planilha está desatualizado (versão ${versaoScript}, o app espera a ${VERSAO_ESPERADA}).</strong>
+    Abas novas — como Tarefas e Operadores — não existem lá, então o que você digitar não será gravado.
+    Corrija em: Config → copiar script → colar no Apps Script → salvar → <b>Implantar → Gerenciar implantações → lápis → Versão: Nova versão</b>.`;
+  box.classList.remove('hidden');
+}
+
 function renderBadge(){
   const n=abertos(vivos()).filter(vencido).length; const el=$('badge-pagar');
   el.textContent=n; el.classList.toggle('hidden',n===0);
@@ -1488,19 +1844,34 @@ function renderTarefas(){
 }
 function setFiltroTarefa(f){ filtroTarefa=f; renderTarefas(); }
 
+function erroTarefa(msg){
+  const el=$('tf-erro');
+  if(!msg){ el.classList.add('hidden'); return; }
+  el.textContent=msg; el.classList.remove('hidden');
+}
+
 async function addTarefa(){
   const data=$('tf-data').value||hoje();
   const desc=$('tf-desc').value.trim();
   const resp=$('tf-resp').value.trim();
-  if(!desc) return toast('Escreva a tarefa.','error');
+  if(!desc){ erroTarefa('Escreva a tarefa antes de incluir.'); return; }
+  if(!OPERADOR){ erroTarefa('Identifique o operador antes de gravar.'); return; }
+  erroTarefa('');
   load('Gravando');
-  // seq fica em branco de propósito: quem numera é o servidor
-  if(await push('Tarefas',{data,descricao:desc,responsavel:resp,concluida:false,excluida:false})){
+  try{
+    // seq fica em branco de propósito: quem numera é o servidor
+    await apiPost({action:'upsert',entity:'Tarefas',
+      record:{data,descricao:desc,responsavel:resp,concluida:false,excluida:false}});
     $('tf-desc').value=''; $('tf-resp').value='';
-    toast('Tarefa incluída.','success'); await sync();
+    toast('Tarefa incluída.','success');
+    await sync();
     setTimeout(()=>$('tf-desc').focus(),100);
-  }
-  unload();
+  }catch(e){
+    const m=String(e.message||e);
+    erroTarefa(/Aba (desconhecida|não encontrada)/i.test(m)
+      ? 'NÃO GRAVOU. A aba Tarefas não existe na planilha porque o script publicado é antigo. Vá em Config, copie o script, cole no Apps Script e republique com Versão: Nova versão.'
+      : 'NÃO GRAVOU: '+m);
+  }finally{ unload(); }
 }
 
 async function concluirTarefa(id,marcada){
@@ -1713,20 +2084,19 @@ async function confirmBaixa(){
   const ajuste=unico?parseNum($('baixa-ajuste').value):0;
   if(unico&&!valor) return toast('Informe o valor.','error');
   closeModal('modal-baixa'); load('Gravando pagamento');
-  let ok=0,erro=0;
   try{
-    for(const id of baixaCtx.ids){
+    const itens=baixaCtx.ids.map(id=>{
       const t=DB.Pagar.find(x=>x.id===id);
-      try{
-        await apiPost({action:'baixa',entity:'Pagar',id,data,
-          valor: unico?valor:Number(t.valor||0), conta_id:conta, ajuste});
-        ok++;
-      }catch(e){ erro++; }
-    }
+      return {id,data,valor:unico?valor:Number(t.valor||0),conta_id:conta,ajuste};
+    });
+    // uma única ida ao servidor para o lote inteiro, em vez de uma por título
+    const j=await apiPost({action:'baixaMany',entity:'Pagar',itens});
+    const ok=j.feitos.length, erro=j.falhas.length;
     toast(erro?`${ok} pago(s), ${erro} com erro.`:`${ok} pagamento(s) registrado(s).`, erro?'error':'success');
     marcados.clear();
     await sync();
-  }finally{ unload(); baixaCtx=null; }
+  }catch(e){ toast('Falha ao pagar: '+e.message,'error',8000); }
+  finally{ unload(); baixaCtx=null; }
 }
 async function estornar(id){
   if(!confirm('Desfazer este pagamento? O movimento de caixa recebe um contra-lançamento.')) return;
@@ -1794,8 +2164,8 @@ async function cancelar(id){
   const tudo=irmaos.length>0&&confirm(`Existem ${irmaos.length} lançamento(s) do mesmo grupo nos meses seguintes.\n\nOK = cancelar também os próximos.\nCancelar = só este.`);
   load('Cancelando');
   try{
-    await apiPost({action:'cancel',entity:'Pagar',id});
-    if(tudo) for(const x of irmaos) await apiPost({action:'cancel',entity:'Pagar',id:x.id});
+    const ids=tudo?[id,...irmaos.map(x=>x.id)]:[id];
+    await apiPost({action:'cancelMany',entity:'Pagar',ids});
     toast(tudo?`${irmaos.length+1} títulos cancelados.`:'Título cancelado.','success');
     await sync();
   }catch(e){ toast('Falha ao cancelar: '+e.message,'error',8000); }
@@ -1884,7 +2254,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Operadores:[],Tarefas:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Operadores:[],Tarefas:[],Contatos:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
