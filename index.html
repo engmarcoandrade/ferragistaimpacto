@@ -111,12 +111,19 @@ td.chk input{width:auto;cursor:pointer}
 .empty{padding:34px 20px;text-align:center;color:var(--text-muted);font-size:13px}
 .empty strong{display:block;color:var(--text);font-size:14px;margin-bottom:5px}
 
-tr.cat-row{cursor:pointer;background:var(--surface-2)}
-tr.cat-row:hover{background:var(--border)}
+tr.cat-row{cursor:pointer;background:rgba(26,86,219,.08);border-left:3px solid var(--primary)}
+tr.cat-row:hover{background:rgba(26,86,219,.14)}
 tr.cat-row td{border-bottom:1px solid var(--border);padding:6px 9px}
+[data-theme="dark"] tr.cat-row{background:rgba(77,144,254,.12)}
+[data-theme="dark"] tr.cat-row:hover{background:rgba(77,144,254,.2)}
 .cat-bar{height:3px;background:var(--border);border-radius:3px;margin-top:3px;max-width:230px;overflow:hidden}
 .cat-bar span{display:block;height:100%;background:var(--success);border-radius:3px;transition:width .3s}
 .cat-pct{font-weight:600;font-size:11px;color:var(--text-muted);margin-left:6px}
+
+/* Lançamentos de Contas a Pagar em negrito, a pedido — mantém contraste
+   mesmo quando a linha também está quitada ou destacada. */
+tr.lanc-row td{font-weight:700}
+tr.lanc-row .sub-linha,tr.lanc-row .recur-mark,tr.lanc-row .venc-alerta,tr.lanc-row .venc-hoje{font-weight:600}
 
 .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .filters{display:flex;gap:4px;flex-wrap:wrap}
@@ -1652,7 +1659,7 @@ function renderPagar(){
 
 function linha(t,cc){
   const late=vencido(t);
-  const cls=[cc,t.pago?'done':'',late?'late':'',t.destaque?'row-starred':'',marcados.has(t.id)?'marcada':''].filter(Boolean).join(' ');
+  const cls=['lanc-row',cc,t.pago?'done':'',late?'late':'',t.destaque?'row-starred':'',marcados.has(t.id)?'marcada':''].filter(Boolean).join(' ');
   const rep = t.repeticao==='recorrente' ? '<span class="recur-mark" title="Recorrente">↻</span>'
             : (t.total_parcelas>1?`<span class="recur-mark">${esc(t.parcela)}</span>`:'');
   const sub=[nomePessoa(t.pessoa_id), t.documento?'doc '+t.documento:'', t.pago&&t.operador?'pago por '+t.operador:'']
