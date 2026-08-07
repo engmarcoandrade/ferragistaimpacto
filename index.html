@@ -371,6 +371,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
 
 <main>
 <div id="aviso-versao" class="hidden"></div>
+<div id="aviso-leitura" class="hidden"></div>
 <div id="aviso-dia" class="hidden"></div>
 
 <section id="tab-Painel" class="tab-content">
@@ -529,6 +530,15 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 
   <div class="card">
+    <h2>Diagnóstico <span class="sub">o que o servidor devolveu na última leitura</span></h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aba</th><th class="num">Linhas na planilha</th><th class="num">Linhas lidas</th><th>Situação</th></tr></thead>
+      <tbody id="tbody-diag"></tbody></table></div>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:10px">
+      Se "Linhas na planilha" for maior que zero e "Linhas lidas" for zero, o problema está na leitura, não na gravação.</p>
+  </div>
+
+  <div class="card">
     <h2>Últimas ações <span class="sub">quem fez o quê</span></h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Quando</th><th>Operador</th><th>Ação</th><th>Detalhe</th></tr></thead>
@@ -582,7 +592,7 @@ function resetCache_() { _cacheSheet = {}; _cacheHeaders = {}; }
 
 // Suba este número sempre que o SCHEMA mudar. O app avisa se o que
 // está publicado for mais antigo do que ele espera.
-const VERSAO = 6;
+const VERSAO = 7;
 
 const SCHEMA = {
   Config: ['chave', 'valor'],
@@ -669,18 +679,30 @@ function doGet(e) {
         if (p.entity) {
           return respond_({ status: 'ok', entity: p.entity, data: readEntity_(p.entity), versao: VERSAO });
         }
-        const out = {}, avisos = [];
+        const out = {}, avisos = [], diagnostico = {};
         // Cada aba é lida isoladamente: se UMA falhar (ex.: script ainda não
         // republicado e a aba nova não existe), as outras continuam
         // funcionando normalmente em vez de derrubar a sincronização inteira.
         ['Contas', 'Categorias', 'Pessoas', 'Operadores', 'Tarefas', 'Contatos',
          'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(function (n) {
-            try { out[n] = readEntity_(n); }
-            catch (err) { out[n] = []; avisos.push(n + ': ' + String(err.message || err)); }
+            try {
+              out[n] = readEntity_(n);
+              const sh = _cacheSheet[n];
+              diagnostico[n] = {
+                lidas: out[n].length,
+                linhas_na_aba: sh ? Math.max(0, sh.getLastRow() - 1) : 0,
+                colunas: (_cacheHeaders[n] || []).join(', ')
+              };
+            } catch (err) {
+              out[n] = [];
+              const msg = String(err.message || err);
+              avisos.push(n + ': ' + msg);
+              diagnostico[n] = { lidas: 0, erro: msg };
+            }
           });
         try { out.Config = config_(); } catch (err) { out.Config = {}; avisos.push('Config: ' + String(err)); }
-        return respond_({ status: 'ok', data: out, versao: VERSAO,
+        return respond_({ status: 'ok', data: out, versao: VERSAO, diagnostico: diagnostico,
                           avisos: avisos.length ? avisos : undefined });
       }
 
@@ -813,6 +835,12 @@ function garantirColunas_(sh, cols) {
   const atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(String) : [];
   const faltando = cols.filter(c => atuais.indexOf(c) === -1);
   if (!faltando.length) return atuais;
+
+  // A aba precisa ter colunas físicas suficientes, senão o setValues abaixo
+  // — e todas as leituras seguintes — falham com "out of bounds".
+  const precisa = atuais.length + faltando.length;
+  if (sh.getMaxColumns() < precisa) sh.insertColumnsAfter(sh.getMaxColumns(), precisa - sh.getMaxColumns());
+
   sh.getRange(1, atuais.length + 1, 1, faltando.length).setValues([faltando])
     .setFontWeight('bold').setBackground('#e8eaed');
   return atuais.concat(faltando);
@@ -830,12 +858,20 @@ function readEntity_(nome) {
   const sh = sheet_(nome);
   const ultima = sh.getLastRow();
   if (ultima < 2) return [];
+
+  // Nunca pedir mais colunas do que a aba realmente tem: se o cabeçalho
+  // em cache for maior que a largura física, o getRange falha e a aba
+  // inteira volta vazia — que foi exatamente o que derrubou as Tarefas.
   const cols = headers_(sh);
-  return sh.getRange(2, 1, ultima - 1, cols.length).getValues().map(linha => {
+  const largura = Math.min(cols.length, sh.getMaxColumns());
+
+  return sh.getRange(2, 1, ultima - 1, largura).getValues().map(linha => {
     const obj = {};
-    cols.forEach((c, i) => obj[c] = normaliza_(linha[i]));
+    for (let i = 0; i < largura; i++) {
+      if (cols[i]) obj[cols[i]] = normaliza_(linha[i]);
+    }
     return obj;
-  }).filter(o => o.id !== '' && o.id !== null);
+  }).filter(o => o.id !== '' && o.id !== null && o.id !== undefined);
 }
 
 function config_() {
@@ -858,7 +894,7 @@ function normaliza_(v) {
 
 function upsert_(entidade, registro) {
   const sh = sheet_(entidade);
-  const cols = headers_(sh);
+  const cols = headers_(sh).slice(0, sh.getMaxColumns());
   const agora = new Date().toISOString();
 
   // Só faz sentido procurar a linha se o chamador mandou um id (edição).
@@ -1181,8 +1217,10 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
-const VERSAO_ESPERADA = 6;
+const VERSAO_ESPERADA = 7;
 let versaoScript = null;
+let diagnostico = null;
+let avisosLeitura = [];
 let OPERADOR='';
 let DB = { Contas:[], Categorias:[], Pessoas:[], Operadores:[], Tarefas:[], Contatos:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
@@ -1359,12 +1397,11 @@ async function sync(){
     const j=await apiGet({action:'read'});
     DB={...DB,...j.data};
     versaoScript = j.versao!=null ? Number(j.versao) : versaoScript;
+    diagnostico = j.diagnostico || null;
+    avisosLeitura = j.avisos || [];
     loaded=true; $('banner').classList.add('hidden'); setStatus('online');
     marcados.clear();
     render();
-    if(j.avisos && j.avisos.length){
-      toast('Algumas abas não carregaram: '+j.avisos.join(' · ')+'. Provavelmente falta republicar o script.','error',12000);
-    }
   }catch(e){
     loaded=false; setStatus('off');
     $('banner').classList.remove('hidden');
@@ -1400,7 +1437,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderOperadores(); renderContatos(); renderLog(); renderVersao(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderOperadores(); renderContatos(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 /* ═══════════ POPUP DE ABERTURA + AVISO DIÁRIO ═══════════ */
@@ -1497,6 +1534,35 @@ function dicaEnvio(m){
   if(/authorization|permission|scope|autoriza/i.test(String(m)))
     return 'Falta autorizar o envio de e-mail. Abra o Apps Script, escolha a função enviarAvisoDiario no seletor do topo, clique em Executar e autorize. Depois republique.';
   return 'Confira se o script foi republicado com Versão: Nova versão.';
+}
+
+/** Mostra, de forma permanente, qualquer aba que não tenha carregado. */
+function renderAvisosLeitura(){
+  const box=$('aviso-leitura');
+  if(!avisosLeitura.length){ box.classList.add('hidden'); return; }
+  box.className='aviso-erro';
+  box.innerHTML='<strong>⚠ Estas abas não carregaram:</strong>'+avisosLeitura.map(a=>'<div>• '+esc(a)+'</div>').join('')
+    +'<div style="margin-top:6px">Veja o detalhe em Config → Diagnóstico.</div>';
+  box.classList.remove('hidden');
+}
+
+/** Tabela crua do que o servidor devolveu, aba por aba. Sem interpretação. */
+function renderDiagnostico(){
+  const box=$('tbody-diag');
+  if(!box) return;
+  if(!diagnostico){ box.innerHTML='<tr><td colspan="4" class="empty">Sincronize para gerar o diagnóstico.</td></tr>'; return; }
+  const nomes=Object.keys(diagnostico);
+  box.innerHTML=nomes.map(n=>{
+    const d=diagnostico[n];
+    const naMem=Array.isArray(DB[n])?DB[n].length:'—';
+    const problema = d.erro ? `<span class="c-bad">${esc(d.erro)}</span>`
+      : (d.linhas_na_aba>d.lidas ? `<span class="c-warn">${d.linhas_na_aba-d.lidas} linha(s) ignorada(s) — provavelmente sem id</span>`
+      : '<span class="c-ok">ok</span>');
+    return `<tr><td><strong>${esc(n)}</strong></td>
+      <td class="num">${d.linhas_na_aba!=null?d.linhas_na_aba:'—'}</td>
+      <td class="num">${d.lidas}</td>
+      <td>${problema}</td></tr>`;
+  }).join('');
 }
 
 function renderVersao(){
