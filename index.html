@@ -659,7 +659,9 @@ function doGet(e) {
     switch (p.action) {
       case 'ping': {
         const c = config_();
-        return respond_({ status: 'ok', empresa: c.empresa, planilha_url: c.planilha_url, versao: VERSAO });
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        return respond_({ status: 'ok', empresa: c.empresa, planilha_url: c.planilha_url,
+                          planilha_real: ss.getUrl(), planilha_nome: ss.getName(), versao: VERSAO });
       }
 
       case 'read': {
@@ -2248,7 +2250,9 @@ async function testarLogin(){
   if(!u){ erro.style.color='var(--danger)'; erro.textContent='Cole a URL antes de testar.'; erro.classList.remove('hidden'); return; }
   load('Testando'); const antes=S.url; S.url=u;
   try{ const j=await apiGet({action:'ping'});
-    erro.style.color='var(--success)'; erro.textContent=`Conectado a "${j.empresa||'planilha'}".`;
+    erro.style.color='var(--success)';
+    erro.innerHTML=`Conectado a "${esc(j.planilha_nome||j.empresa||'planilha')}".<br>
+      <span style="font-weight:400">Planilha: ${esc(j.planilha_real||'')}</span> — confira se é a mesma que você abre manualmente.`;
   }catch(e){ erro.style.color='var(--danger)'; erro.textContent=e.message+' — '+dicaErro(e.message); }
   finally{ erro.classList.remove('hidden'); S.url=antes; unload(); }
 }
@@ -2260,7 +2264,9 @@ function sair(){
 async function testar(){
   load('Testando');
   try{ const j=await apiGet({action:'ping'});
-    $('cfg-diag').textContent=`Conectado a "${j.empresa||'planilha'}" — versão ${j.versao} do script.`;
+    $('cfg-diag').innerHTML=`Conectado a <strong>"${esc(j.planilha_nome||j.empresa||'planilha')}"</strong> — versão ${j.versao} do script.<br>
+      Planilha real: <a href="${esc(j.planilha_real)}" target="_blank" rel="noopener">${esc(j.planilha_real)}</a>
+      <span style="display:block;margin-top:4px">Confira se este é o mesmo endereço da aba que você abre manualmente. Se for diferente, o app está gravando em outra planilha.</span>`;
     toast('Conexão certa.','success');
   }catch(e){ $('cfg-diag').textContent=e.message+' — '+dicaErro(e.message); toast('Falhou: '+e.message,'error',8000); }
   finally{ unload(); }
