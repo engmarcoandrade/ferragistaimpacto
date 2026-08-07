@@ -167,6 +167,17 @@ tr.cat-row td{border-bottom:1px solid var(--border);padding:6px 9px}
 .saldo-input:focus{border-color:var(--primary);background:var(--surface)}
 .saldo-input.forte{font-weight:700}
 
+/* ANOTAÇÕES */
+.nota{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow-sm)}
+.nota.fixada{border-left:4px solid var(--warning);background:rgba(180,83,9,.05)}
+.nota-txt{white-space:pre-wrap;font-size:13px;line-height:1.5;margin-bottom:8px}
+.nota-meta{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;
+  font-size:11px;color:var(--text-muted)}
+.nota-acoes{display:flex;gap:4px}
+.nota textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;
+  background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;resize:vertical}
+
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9990;padding:16px}
 .modal{background:var(--surface);border-radius:12px;padding:24px;width:440px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.25)}
 .modal h3{font-size:16px;font-weight:700;margin-bottom:6px}
@@ -319,6 +330,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   <button class="tab-link" data-tab="Pagar">Contas a Pagar <span id="badge-pagar" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Fluxo">Fluxo de Caixa</button>
   <button class="tab-link" data-tab="Cadastros">Cadastros</button>
+  <button class="tab-link" data-tab="Anotacoes">Anotações</button>
   <button class="tab-link" data-tab="Config">Config</button>
 </div></nav>
 
@@ -396,6 +408,20 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
       <div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Nome</th><th class="num">Em aberto</th><th></th></tr></thead><tbody id="tbody-pessoas"></tbody></table></div>
     </div>
   </div>
+</section>
+
+<section id="tab-Anotacoes" class="tab-content">
+  <div class="card">
+    <h2>Nova anotação</h2>
+    <div class="form-field">
+      <textarea id="an-texto" rows="3" placeholder="Escreva o que precisa registrar…" style="resize:vertical;font-family:inherit"></textarea>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-primary" onclick="addAnotacao()">Salvar anotação</button>
+    </div>
+    <div id="an-erro" class="hidden erro-inline"></div>
+  </div>
+  <div id="lista-anotacoes"></div>
 </section>
 
 <section id="tab-Config" class="tab-content">
@@ -503,7 +529,7 @@ function resetCache_() { _cacheSheet = {}; _cacheHeaders = {}; }
 
 // Suba este número sempre que o SCHEMA mudar. O app avisa se o que
 // está publicado for mais antigo do que ele espera.
-const VERSAO = 9;
+const VERSAO = 10;
 
 const SCHEMA = {
   Config: ['chave', 'valor'],
@@ -517,6 +543,8 @@ const SCHEMA = {
   Operadores: ['id', 'nome', 'ativo', 'criado_em'],
 
   Contatos: ['id', 'nome', 'email', 'telegram_id', 'ativo', 'criado_em'],
+
+  Anotacoes: ['id', 'texto', 'fixada', 'excluida', 'operador', 'criado_em', 'atualizado_em'],
 
   Tarefas: ['id', 'seq', 'data', 'descricao', 'responsavel', 'concluida',
             'data_conclusao', 'concluida_por', 'excluida', 'operador',
@@ -594,7 +622,7 @@ function doGet(e) {
         // Cada aba é lida isoladamente: se UMA falhar (ex.: script ainda não
         // republicado e a aba nova não existe), as outras continuam
         // funcionando normalmente em vez de derrubar a sincronização inteira.
-        ['Contas', 'Categorias', 'Pessoas', 'Contatos',
+        ['Contas', 'Categorias', 'Pessoas', 'Contatos', 'Anotacoes',
          'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(function (n) {
             try {
@@ -1096,7 +1124,7 @@ function novoId_(entidade) {
   const prefixo = { Receber: 'REC', Pagar: 'PAG', Pessoas: 'PES',
                     Categorias: 'CAT', Contas: 'CTA', Movimentos: 'MOV',
                     Operadores: 'OPE', Tarefas: 'TAR',
-                    Contatos: 'CTT' }[entidade] || 'REG';
+                    Contatos: 'CTT', Anotacoes: 'ANT' }[entidade] || 'REG';
   return prefixo + '-' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyMMdd') +
          '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
 }
@@ -1128,12 +1156,12 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
-const VERSAO_ESPERADA = 9;
+const VERSAO_ESPERADA = 10;
 let versaoScript = null;
 let diagnostico = null;
 let avisosLeitura = [];
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Contatos:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Contatos:[], Anotacoes:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
@@ -1279,7 +1307,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderContatos(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderContatos(); renderAnotacoes(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 /* ═══════════ POPUP DE ABERTURA + AVISO DIÁRIO ═══════════ */
@@ -1709,6 +1737,78 @@ function renderCadastros(){
 }
 
 
+/* ═══════════ ANOTAÇÕES ═══════════ */
+const anotacoesVivas = () => (DB.Anotacoes||[]).filter(a=>a.excluida!==true && a.excluida!=='TRUE');
+let notaEditando=null;
+
+function renderAnotacoes(){
+  const box=$('lista-anotacoes'); if(!box) return;
+  const lista=[...anotacoesVivas()].sort((a,b)=>{
+    const fa=(a.fixada===true||a.fixada==='TRUE')?1:0, fb=(b.fixada===true||b.fixada==='TRUE')?1:0;
+    if(fa!==fb) return fb-fa;
+    return String(b.atualizado_em||b.criado_em||'').localeCompare(String(a.atualizado_em||a.criado_em||''));
+  });
+
+  box.innerHTML = lista.length ? lista.map(n=>{
+    const fixada=n.fixada===true||n.fixada==='TRUE';
+    const quando=String(n.atualizado_em||n.criado_em||'').replace('T',' ').slice(0,16);
+    const editando=notaEditando===n.id;
+    if(editando){
+      return `<div class="nota ${fixada?'fixada':''}">
+        <textarea id="edit-nota-${n.id}" rows="3">${esc(n.texto)}</textarea>
+        <div class="nota-acoes" style="margin-top:8px;justify-content:flex-end">
+          <button class="btn btn-sm btn-ghost" onclick="cancelarEdicaoNota()">Cancelar</button>
+          <button class="btn btn-sm btn-primary" onclick="salvarEdicaoNota('${n.id}')">Salvar</button>
+        </div></div>`;
+    }
+    return `<div class="nota ${fixada?'fixada':''}">
+      <div class="nota-txt">${esc(n.texto)}</div>
+      <div class="nota-meta">
+        <span>${fixada?'📌 ':''}${esc(n.operador||'')}${quando?' · '+brDate(quando)+' '+quando.slice(11):''}</span>
+        <div class="nota-acoes">
+          <button class="btn btn-sm btn-ghost" onclick="toggleFixarNota('${n.id}')">${fixada?'Desafixar':'Fixar'}</button>
+          <button class="btn btn-sm btn-ghost" onclick="editarNota('${n.id}')" title="Editar">✎</button>
+          <button class="btn btn-sm btn-danger" onclick="excluirNota('${n.id}')" title="Excluir">×</button>
+        </div>
+      </div></div>`;
+  }).join('') : '<div class="card"><div class="empty"><strong>Nenhuma anotação ainda</strong>Escreva a primeira no campo acima.</div></div>';
+}
+
+async function addAnotacao(){
+  const el=$('an-texto'), texto=el.value.trim();
+  const erro=$('an-erro');
+  if(!texto){ erro.textContent='Escreva algo antes de salvar.'; erro.classList.remove('hidden'); return; }
+  erro.classList.add('hidden');
+  load('Gravando');
+  try{
+    await apiPost({action:'upsert',entity:'Anotacoes',
+      record:{texto,fixada:false,excluida:false}});
+    el.value=''; toast('Anotação salva.','success'); await sync();
+  }catch(e){
+    erro.textContent='NÃO GRAVOU: '+e.message; erro.classList.remove('hidden');
+  }finally{ unload(); }
+}
+function editarNota(id){ notaEditando=id; renderAnotacoes(); setTimeout(()=>{ const t=$('edit-nota-'+id); if(t){ t.focus(); t.setSelectionRange(t.value.length,t.value.length); } },50); }
+function cancelarEdicaoNota(){ notaEditando=null; renderAnotacoes(); }
+async function salvarEdicaoNota(id){
+  const texto=$('edit-nota-'+id).value.trim();
+  if(!texto) return toast('A anotação não pode ficar vazia.','error');
+  load('Gravando');
+  if(await push('Anotacoes',{id,texto})){ notaEditando=null; toast('Anotação atualizada.','success'); await sync(); }
+  unload();
+}
+async function toggleFixarNota(id){
+  const n=(DB.Anotacoes||[]).find(x=>x.id===id); if(!n) return;
+  const fixada=n.fixada===true||n.fixada==='TRUE';
+  if(await push('Anotacoes',{id,fixada:!fixada})) await sync();
+}
+async function excluirNota(id){
+  if(!confirm('Excluir esta anotação? Ela some da lista, mas fica guardada na planilha.')) return;
+  load('Excluindo');
+  if(await push('Anotacoes',{id,excluida:true})){ toast('Anotação excluída.','success'); await sync(); }
+  unload();
+}
+
 function renderLog(){
   const l=(DB.Log||[]).slice(-25).reverse();
   $('tbody-log').innerHTML=l.length?l.map(r=>{
@@ -2039,7 +2139,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Contatos:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Contatos:[],Anotacoes:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
