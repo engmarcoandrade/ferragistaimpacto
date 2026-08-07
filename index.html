@@ -55,6 +55,8 @@ main{max-width:1320px;margin:0 auto;padding:20px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
 .card h2{font-size:15px;font-weight:700;margin-bottom:14px}
 .card h2 .sub{font-weight:400;font-size:12px;color:var(--text-muted);margin-left:6px}
+.card-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none}
+.card-head .icon-btn{pointer-events:none}
 .flex-row{display:flex;gap:16px;flex-wrap:wrap} .flex-col{flex:1;min-width:300px}
 
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:16px}
@@ -165,19 +167,6 @@ tr.cat-row td{border-bottom:1px solid var(--border);padding:6px 9px}
 .saldo-input:focus{border-color:var(--primary);background:var(--surface)}
 .saldo-input.forte{font-weight:700}
 
-/* TAREFAS — concluída fica riscada e esmaecida, com marca d'água */
-tr.tarefa-ok td{color:var(--text-muted);background:var(--row-off)}
-tr.tarefa-ok .tf-txt{text-decoration:line-through;opacity:.55}
-tr.tarefa-ok .tf-num,tr.tarefa-ok .tf-resp,tr.tarefa-ok .tf-data{opacity:.5}
-td.tf-cell{position:relative}
-tr.tarefa-ok td.tf-cell::after{
-  content:'CONCLUÍDA';position:absolute;right:14px;top:50%;
-  transform:translateY(-50%) rotate(-8deg);
-  font-size:13px;font-weight:800;letter-spacing:2px;
-  color:var(--success);opacity:.16;pointer-events:none;white-space:nowrap}
-.tf-num{font-variant-numeric:tabular-nums;font-weight:700;color:var(--text-muted)}
-.tf-sub{font-size:11px;color:var(--text-muted);line-height:1.25}
-
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9990;padding:16px}
 .modal{background:var(--surface);border-radius:12px;padding:24px;width:440px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.25)}
 .modal h3{font-size:16px;font-weight:700;margin-bottom:6px}
@@ -273,23 +262,6 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 </div>
 
-<!-- EDIÇÃO DE TAREFA -->
-<div id="modal-tarefa" class="overlay hidden">
-  <div class="modal">
-    <h3>Alterar tarefa</h3>
-    <p class="hint" id="tf-edit-sub"></p>
-    <div class="form-row">
-      <div class="form-field" style="max-width:160px"><label>Data</label><input type="date" id="tf-e-data"></div>
-      <div class="form-field"><label>Responsável</label>
-        <input id="tf-e-resp" list="lista-resp" autocomplete="off"></div>
-    </div>
-    <div class="form-field" style="margin-top:10px"><label>Tarefa</label><input id="tf-e-desc"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal('modal-tarefa')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarTarefa()">Salvar</button>
-    </div>
-  </div>
-</div>
 
 <!-- EDIÇÃO -->
 <div id="modal-edit" class="overlay hidden">
@@ -327,7 +299,8 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   <div class="header-inner">
     <div class="header-brand">
       <h1>Ferragista Impacto <small>Contas a Pagar</small></h1>
-      <span class="status-pill"><span id="dot" class="dot off"></span><span id="status-txt">Desconectado</span></span>
+      <span class="status-pill" id="status-pill" onclick="testar()" title="Clique para testar a conexão">
+        <span id="dot" class="dot off"></span><span id="status-txt">Desconectado</span><span id="versao-txt"></span></span>
       <span class="op-pill" id="op-pill" title="Operador">👤 <span id="op-nome-txt">—</span></span>
     </div>
     <div class="header-actions">
@@ -345,7 +318,6 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   <button class="tab-link active" data-tab="Painel">Painel</button>
   <button class="tab-link" data-tab="Pagar">Contas a Pagar <span id="badge-pagar" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Fluxo">Fluxo de Caixa</button>
-  <button class="tab-link" data-tab="Tarefas">Tarefas <span id="badge-tarefas" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Cadastros">Cadastros</button>
   <button class="tab-link" data-tab="Config">Config</button>
 </div></nav>
@@ -391,37 +363,6 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   </div>
 </section>
 
-<section id="tab-Tarefas" class="tab-content">
-  <div class="card">
-    <h2>Nova tarefa</h2>
-    <div class="form-row">
-      <div class="form-field" style="max-width:150px"><label>Data</label><input type="date" id="tf-data"></div>
-      <div class="form-field" style="flex:3"><label>Tarefa</label>
-        <input id="tf-desc" placeholder="O que precisa ser feito" onkeydown="if(event.key==='Enter')addTarefa()"></div>
-      <div class="form-field" style="max-width:220px"><label>Responsável</label>
-        <input id="tf-resp" list="lista-resp" placeholder="Quem vai fazer" autocomplete="off">
-        <datalist id="lista-resp"></datalist></div>
-      <button class="btn btn-primary" onclick="addTarefa()">Incluir</button>
-    </div>
-    <div id="tf-erro" class="hidden erro-inline"></div>
-  </div>
-
-  <div class="toolbar">
-    <div class="strip" id="tf-resumo"></div>
-    <div class="filters" id="tf-filtros"></div>
-  </div>
-
-  <div class="card" style="padding:0">
-    <div class="table-wrap"><table>
-      <thead><tr>
-        <th style="width:52px">Nº</th><th style="width:40px">✔</th>
-        <th style="width:110px">Data</th><th>Tarefa</th>
-        <th style="width:150px">Responsável</th><th style="width:90px">Ações</th>
-      </tr></thead>
-      <tbody id="tbody-tarefas"></tbody>
-    </table></div>
-  </div>
-</section>
 
 <section id="tab-Cadastros" class="tab-content">
   <div class="card">
@@ -562,7 +503,7 @@ function resetCache_() { _cacheSheet = {}; _cacheHeaders = {}; }
 
 // Suba este número sempre que o SCHEMA mudar. O app avisa se o que
 // está publicado for mais antigo do que ele espera.
-const VERSAO = 8;
+const VERSAO = 9;
 
 const SCHEMA = {
   Config: ['chave', 'valor'],
@@ -653,7 +594,7 @@ function doGet(e) {
         // Cada aba é lida isoladamente: se UMA falhar (ex.: script ainda não
         // republicado e a aba nova não existe), as outras continuam
         // funcionando normalmente em vez de derrubar a sincronização inteira.
-        ['Contas', 'Categorias', 'Pessoas', 'Tarefas', 'Contatos',
+        ['Contas', 'Categorias', 'Pessoas', 'Contatos',
          'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(function (n) {
             try {
@@ -1187,17 +1128,16 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzTtTRUNi9mgGBhhAiAw
 
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
-const VERSAO_ESPERADA = 8;
+const VERSAO_ESPERADA = 9;
 let versaoScript = null;
 let diagnostico = null;
 let avisosLeitura = [];
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Tarefas:[], Contatos:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Contatos:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
-let filtroTarefa='pendentes';
-let tarefaCtx=null;
+let formLancarAberto=true;
 let marcados=new Set();
 let baixaCtx=null, editCtx=null;
 
@@ -1227,6 +1167,18 @@ function closeModal(id){ $(id).classList.add('hidden'); }
 function setStatus(s){
   $('dot').className='dot '+({online:'on',sync:'sync',off:'off'}[s]);
   $('status-txt').textContent={online:'Conectado',sync:'Sincronizando',off:'Desconectado'}[s];
+  atualizarSeloVersao();
+}
+/** Selo permanente de versão no cabeçalho — não depende de abrir Config. */
+function atualizarSeloVersao(){
+  const el=$('versao-txt');
+  if(versaoScript===null){ el.textContent=''; return; }
+  const desatualizado = versaoScript < VERSAO_ESPERADA;
+  el.textContent = ` · v${versaoScript}`;
+  el.style.color = desatualizado ? 'var(--danger)' : 'var(--text-muted)';
+  el.title = desatualizado
+    ? `Script desatualizado: a planilha está na v${versaoScript}, o app espera v${VERSAO_ESPERADA}. Republique.`
+    : `Script atualizado (v${versaoScript}).`;
 }
 function toggleTheme(){
   const dark=document.body.getAttribute('data-theme')==='dark';
@@ -1327,7 +1279,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderTarefas(); renderContatos(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderContatos(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 /* ═══════════ POPUP DE ABERTURA + AVISO DIÁRIO ═══════════ */
@@ -1460,7 +1412,6 @@ function renderVersao(){
   if(versaoScript===null || versaoScript>=VERSAO_ESPERADA){ box.classList.add('hidden'); return; }
   box.className='aviso-erro';
   box.innerHTML=`<strong>⚠ O script na planilha está desatualizado (versão ${versaoScript}, o app espera a ${VERSAO_ESPERADA}).</strong>
-    Abas novas — como Tarefas e Operadores — não existem lá, então o que você digitar não será gravado.
     Corrija em: Config → copiar script → colar no Apps Script → salvar → <b>Implantar → Gerenciar implantações → lápis → Versão: Nova versão</b>.`;
   box.classList.remove('hidden');
 }
@@ -1593,7 +1544,11 @@ function renderPagar(){
 
   $('tab-Pagar').innerHTML=`
   <div class="card">
-    <h2>Lançar conta a pagar</h2>
+    <div class="card-head" onclick="toggleFormLancar()">
+      <h2 style="margin-bottom:0">Lançar conta a pagar</h2>
+      <button class="icon-btn" title="${formLancarAberto?'Recolher':'Expandir'}">${formLancarAberto?'▾':'▸'}</button>
+    </div>
+    <div id="form-lancar-corpo" class="${formLancarAberto?'':'hidden'}" style="margin-top:14px">
     <div class="form-row">
       <div class="form-field" style="max-width:150px"><label>Vencimento</label><input type="date" id="f-venc" value="${primeiroDiaVisivel()}"></div>
       <div class="form-field" style="flex:2"><label>Descrição</label><input id="f-desc" placeholder="Compra fornecedor"></div>
@@ -1620,6 +1575,7 @@ function renderPagar(){
         <select id="f-conta">${DB.Contas.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')||'<option value="">cadastre uma conta</option>'}</select></div>
     </div>
     <p id="f-preview" class="hidden" style="font-size:12px;color:var(--text-muted);margin-top:8px"></p>
+    </div>
   </div>
 
   ${selecionados.length?`<div class="barra-lote">
@@ -1752,125 +1708,6 @@ function renderCadastros(){
     :'<tr><td colspan="3" class="empty"><strong>Nenhum fornecedor</strong>Opcional — dá para lançar só com a descrição.</td></tr>';
 }
 
-/* ═══════════ TAREFAS ═══════════ */
-const tarefasVivas = () => (DB.Tarefas||[]).filter(t=>t.excluida!==true && t.excluida!=='TRUE');
-const tarefaFeita  = t => t.concluida===true || t.concluida==='TRUE';
-
-function renderTarefas(){
-  const todas=tarefasVivas();
-  const pend=todas.filter(t=>!tarefaFeita(t));
-  const feitas=todas.filter(tarefaFeita);
-
-  const cont={todas:todas.length,pendentes:pend.length,concluidas:feitas.length};
-  const fs=[['todas','Todas'],['pendentes','Pendentes'],['concluidas','Concluídas']];
-  $('tf-filtros').innerHTML=fs.map(([k,l])=>
-    `<button class="${filtroTarefa===k?'active':''}" onclick="setFiltroTarefa('${k}')">${l}${cont[k]?` <span class="cont">${cont[k]}</span>`:''}</button>`).join('');
-
-  $('tf-resumo').innerHTML=`<span>Pendentes: <strong class="${pend.length?'c-warn':'c-ok'}">${pend.length}</strong></span>
-    <span>Concluídas: <strong class="c-ok">${feitas.length}</strong></span>`;
-
-  // Sugestões de responsável a partir dos operadores cadastrados
-  $('lista-resp').innerHTML=`<option value="${esc(OPERADOR_FIXO)}">`;
-
-  let lista = filtroTarefa==='pendentes' ? pend : filtroTarefa==='concluidas' ? feitas : todas;
-  // Pendentes primeiro, e dentro de cada grupo a data mais antiga no topo
-  lista=[...lista].sort((a,b)=>{
-    const fa=tarefaFeita(a)?1:0, fb=tarefaFeita(b)?1:0;
-    if(fa!==fb) return fa-fb;
-    return String(a.data).localeCompare(String(b.data)) || Number(a.seq||0)-Number(b.seq||0);
-  });
-
-  $('tbody-tarefas').innerHTML = lista.length ? lista.map(t=>{
-    const ok=tarefaFeita(t);
-    const sub=ok&&t.data_conclusao?`concluída ${brDate(t.data_conclusao)}${t.concluida_por?' por '+esc(t.concluida_por):''}`:'';
-    return `<tr class="${ok?'tarefa-ok':''}">
-      <td class="tf-num">${esc(t.seq||'—')}</td>
-      <td class="chk"><input type="checkbox" ${ok?'checked':''} onchange="concluirTarefa('${t.id}',this.checked)"></td>
-      <td class="tf-data venc">${brDate(t.data)}</td>
-      <td class="tf-cell"><span class="tf-txt">${esc(t.descricao)}</span>
-        ${sub?`<div class="tf-sub">${sub}</div>`:''}</td>
-      <td class="tf-resp">${esc(t.responsavel||'—')}</td>
-      <td><div class="acoes">
-        <button class="btn btn-sm btn-ghost" onclick="abrirTarefa('${t.id}')" title="Alterar">✎</button>
-        <button class="btn btn-sm btn-danger" onclick="excluirTarefa('${t.id}')" title="Excluir">×</button>
-      </div></td></tr>`;
-  }).join('')
-   : `<tr><td colspan="6" class="empty"><strong>${filtroTarefa==='concluidas'?'Nenhuma tarefa concluída':'Nenhuma tarefa'}</strong>Inclua a primeira no formulário acima.</td></tr>`;
-
-  const b=$('badge-tarefas');
-  b.textContent=pend.length; b.classList.toggle('hidden',pend.length===0);
-}
-function setFiltroTarefa(f){ filtroTarefa=f; renderTarefas(); }
-
-function erroTarefa(msg){
-  const el=$('tf-erro');
-  if(!msg){ el.classList.add('hidden'); return; }
-  el.textContent=msg; el.classList.remove('hidden');
-}
-
-async function addTarefa(){
-  const data=$('tf-data').value||hoje();
-  const desc=$('tf-desc').value.trim();
-  const resp=$('tf-resp').value.trim();
-  if(!desc){ erroTarefa('Escreva a tarefa antes de incluir.'); return; }
-  if(!OPERADOR){ erroTarefa('Identifique o operador antes de gravar.'); return; }
-  erroTarefa('');
-  load('Gravando');
-  try{
-    // seq fica em branco de propósito: quem numera é o servidor
-    await apiPost({action:'upsert',entity:'Tarefas',
-      record:{data,descricao:desc,responsavel:resp,concluida:false,excluida:false}});
-    $('tf-desc').value=''; $('tf-resp').value='';
-    toast('Tarefa incluída.','success');
-    await sync();
-    setTimeout(()=>$('tf-desc').focus(),100);
-  }catch(e){
-    const m=String(e.message||e);
-    erroTarefa(/Aba (desconhecida|não encontrada)/i.test(m)
-      ? 'NÃO GRAVOU. A aba Tarefas não existe na planilha porque o script publicado é antigo. Vá em Config, copie o script, cole no Apps Script e republique com Versão: Nova versão.'
-      : 'NÃO GRAVOU: '+m);
-  }finally{ unload(); }
-}
-
-async function concluirTarefa(id,marcada){
-  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
-  load(marcada?'Concluindo':'Reabrindo');
-  const rec = marcada
-    ? {id,concluida:true,data_conclusao:hoje(),concluida_por:OPERADOR}
-    : {id,concluida:false,data_conclusao:'',concluida_por:''};
-  if(await push('Tarefas',rec)){
-    toast(marcada?'Tarefa concluída.':'Tarefa reaberta.','success'); await sync();
-  } else { renderTarefas(); }
-  unload();
-}
-
-function abrirTarefa(id){
-  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
-  tarefaCtx={id};
-  $('tf-edit-sub').textContent=`Tarefa nº ${t.seq||'—'}`;
-  $('tf-e-data').value=String(t.data).slice(0,10);
-  $('tf-e-desc').value=t.descricao||'';
-  $('tf-e-resp').value=t.responsavel||'';
-  $('modal-tarefa').classList.remove('hidden');
-}
-async function salvarTarefa(){
-  if(!tarefaCtx) return;
-  const desc=$('tf-e-desc').value.trim();
-  if(!desc) return toast('A tarefa não pode ficar sem texto.','error');
-  closeModal('modal-tarefa'); load('Gravando');
-  if(await push('Tarefas',{id:tarefaCtx.id,data:$('tf-e-data').value,
-      descricao:desc,responsavel:$('tf-e-resp').value.trim()})){
-    toast('Tarefa alterada.','success'); await sync();
-  }
-  unload(); tarefaCtx=null;
-}
-async function excluirTarefa(id){
-  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
-  if(!confirm(`Excluir a tarefa nº ${t.seq}?\n\n"${t.descricao}"\n\nEla some da lista, mas a linha fica guardada na planilha.`)) return;
-  load('Excluindo');
-  if(await push('Tarefas',{id,excluida:true})){ toast('Tarefa excluída.','success'); await sync(); }
-  unload();
-}
 
 function renderLog(){
   const l=(DB.Log||[]).slice(-25).reverse();
@@ -1912,6 +1749,7 @@ function irPara(f){
 
 /* ═══════════ AÇÕES ═══════════ */
 function setFiltro(f){ filtro=f; renderPagar(); }
+function toggleFormLancar(){ formLancarAberto=!formLancarAberto; renderPagar(); }
 function setAgrupar(v){ agrupar=v; renderPagar(); }
 function setBusca(v){
   busca=v; renderPagar();
@@ -2201,7 +2039,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Tarefas:[],Contatos:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Contatos:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
@@ -2245,7 +2083,6 @@ document.querySelectorAll('.tab-link').forEach(b=>b.onclick=()=>{
 });
 $('script-box').textContent=$('gs-source').textContent;
 $('script-box2').textContent=$('gs-source').textContent;
-$('tf-data').value=hoje();
 $('login-url').value=URL_PADRAO;
 S.url=URL_PADRAO;
 if(URL_PADRAO) $('cfg-url2').value=URL_PADRAO;
