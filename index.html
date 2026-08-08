@@ -174,6 +174,19 @@ tr.lanc-row .sub-linha,tr.lanc-row .recur-mark,tr.lanc-row .venc-alerta,tr.lanc-
 .saldo-input:focus{border-color:var(--primary);background:var(--surface)}
 .saldo-input.forte{font-weight:700}
 
+/* TAREFAS — concluída fica riscada e esmaecida, com marca d'água */
+tr.tarefa-ok td{color:var(--text-muted);background:var(--row-off)}
+tr.tarefa-ok .tf-txt{text-decoration:line-through;opacity:.55}
+tr.tarefa-ok .tf-num,tr.tarefa-ok .tf-resp,tr.tarefa-ok .tf-data{opacity:.5}
+td.tf-cell{position:relative}
+tr.tarefa-ok td.tf-cell::after{
+  content:'CONCLUÍDA';position:absolute;right:14px;top:50%;
+  transform:translateY(-50%) rotate(-8deg);
+  font-size:13px;font-weight:800;letter-spacing:2px;
+  color:var(--success);opacity:.16;pointer-events:none;white-space:nowrap}
+.tf-num{font-variant-numeric:tabular-nums;font-weight:700;color:var(--text-muted)}
+.tf-sub{font-size:11px;color:var(--text-muted);line-height:1.25}
+
 /* ANOTAÇÕES */
 .nota{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow-sm)}
@@ -281,6 +294,23 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
 </div>
 
 
+<!-- EDIÇÃO DE TAREFA -->
+<div id="modal-tarefa" class="overlay hidden">
+  <div class="modal">
+    <h3>Alterar tarefa</h3>
+    <p class="hint" id="tf-edit-sub"></p>
+    <div class="form-row">
+      <div class="form-field" style="max-width:160px"><label>Data</label><input type="date" id="tf-e-data"></div>
+      <div class="form-field"><label>Responsável</label><input id="tf-e-resp" autocomplete="off"></div>
+    </div>
+    <div class="form-field" style="margin-top:10px"><label>Tarefa</label><input id="tf-e-desc"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-tarefa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTarefa()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIÇÃO -->
 <div id="modal-edit" class="overlay hidden">
   <div class="modal">
@@ -337,6 +367,7 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
   <button class="tab-link" data-tab="Pagar">Contas a Pagar <span id="badge-pagar" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Fluxo">Fluxo de Caixa</button>
   <button class="tab-link" data-tab="Cadastros">Cadastros</button>
+  <button class="tab-link" data-tab="Tarefas">Tarefas <span id="badge-tarefas" class="badge hidden"></span></button>
   <button class="tab-link" data-tab="Anotacoes">Anotações</button>
   <button class="tab-link" data-tab="Config">Config</button>
 </div></nav>
@@ -414,6 +445,37 @@ ol.steps{margin:0 0 14px 18px;font-size:13px;line-height:1.9;color:var(--text-mu
       </div>
       <div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Nome</th><th class="num">Em aberto</th><th></th></tr></thead><tbody id="tbody-pessoas"></tbody></table></div>
     </div>
+  </div>
+</section>
+
+<section id="tab-Tarefas" class="tab-content">
+  <div class="card">
+    <h2>Nova tarefa</h2>
+    <div class="form-row">
+      <div class="form-field" style="max-width:150px"><label>Data</label><input type="date" id="tf-data"></div>
+      <div class="form-field" style="flex:3"><label>Tarefa</label>
+        <input id="tf-desc" placeholder="O que precisa ser feito" onkeydown="if(event.key==='Enter')addTarefa()"></div>
+      <div class="form-field" style="max-width:200px"><label>Responsável</label>
+        <input id="tf-resp" placeholder="Quem vai fazer" autocomplete="off"></div>
+      <button class="btn btn-primary" onclick="addTarefa()">Incluir</button>
+    </div>
+    <div id="tf-erro" class="hidden erro-inline"></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="strip" id="tf-resumo"></div>
+    <div class="filters" id="tf-filtros"></div>
+  </div>
+
+  <div class="card" style="padding:0">
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:52px">Nº</th><th style="width:40px">✔</th>
+        <th style="width:110px">Data</th><th>Tarefa</th>
+        <th style="width:150px">Responsável</th><th style="width:90px">Ações</th>
+      </tr></thead>
+      <tbody id="tbody-tarefas"></tbody>
+    </table></div>
   </div>
 </section>
 
@@ -536,7 +598,7 @@ function resetCache_() { _cacheSheet = {}; _cacheHeaders = {}; }
 
 // Suba este número sempre que o SCHEMA mudar. O app avisa se o que
 // está publicado for mais antigo do que ele espera.
-const VERSAO = 10;
+const VERSAO = 11;
 
 const SCHEMA = {
   Config: ['chave', 'valor'],
@@ -629,7 +691,7 @@ function doGet(e) {
         // Cada aba é lida isoladamente: se UMA falhar (ex.: script ainda não
         // republicado e a aba nova não existe), as outras continuam
         // funcionando normalmente em vez de derrubar a sincronização inteira.
-        ['Contas', 'Categorias', 'Pessoas', 'Contatos', 'Anotacoes',
+        ['Contas', 'Categorias', 'Pessoas', 'Contatos', 'Anotacoes', 'Tarefas',
          'Receber', 'Pagar', 'Movimentos', 'Log']
           .forEach(function (n) {
             try {
@@ -1163,12 +1225,12 @@ const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbxEVSzoNzzHR3qKfVJIP
 
 /* ═══════════ ESTADO ═══════════ */
 const S = { url:'' };
-const VERSAO_ESPERADA = 10;
+const VERSAO_ESPERADA = 11;
 let versaoScript = null;
 let diagnostico = null;
 let avisosLeitura = [];
 let OPERADOR='';
-let DB = { Contas:[], Categorias:[], Pessoas:[], Contatos:[], Anotacoes:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
+let DB = { Contas:[], Categorias:[], Pessoas:[], Contatos:[], Anotacoes:[], Tarefas:[], Pagar:[], Receber:[], Movimentos:[], Log:[], Config:{} };
 let loaded=false, busy=false;
 let cur = new Date();
 let filtro='open', agrupar='categoria', busca='';
@@ -1314,7 +1376,7 @@ const entradasPrevistas = () => (DB.Receber||[]).filter(t=>t.status==='Aberto');
 /* ═══════════ RENDER ═══════════ */
 function render(){
   $('month-lbl').textContent=cur.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderContatos(); renderAnotacoes(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
+  renderPainel(); renderPagar(); renderFluxo(); renderCadastros(); renderContatos(); renderTarefas(); renderAnotacoes(); renderLog(); renderVersao(); renderAvisosLeitura(); renderDiagnostico(); renderBadge(); renderAviso();
   if(DB.Config.planilha_url && !$('cfg-planilha').value) $('cfg-planilha').value=DB.Config.planilha_url;
 }
 /* ═══════════ POPUP DE ABERTURA + AVISO DIÁRIO ═══════════ */
@@ -1748,6 +1810,120 @@ function renderCadastros(){
 const anotacoesVivas = () => (DB.Anotacoes||[]).filter(a=>a.excluida!==true && a.excluida!=='TRUE');
 let notaEditando=null;
 
+/* ═══════════ TAREFAS ═══════════ */
+const tarefasVivas = () => (DB.Tarefas||[]).filter(t=>t.excluida!==true && t.excluida!=='TRUE');
+const tarefaFeita  = t => t.concluida===true || t.concluida==='TRUE';
+let filtroTarefa='pendentes';
+let tarefaCtx=null;
+
+function renderTarefas(){
+  const box=$('tbody-tarefas'); if(!box) return;
+  const todas=tarefasVivas();
+  const pend=todas.filter(t=>!tarefaFeita(t));
+  const feitas=todas.filter(tarefaFeita);
+
+  const cont={todas:todas.length,pendentes:pend.length,concluidas:feitas.length};
+  const fs=[['todas','Todas'],['pendentes','Pendentes'],['concluidas','Concluídas']];
+  $('tf-filtros').innerHTML=fs.map(([k,l])=>
+    `<button class="${filtroTarefa===k?'active':''}" onclick="setFiltroTarefa('${k}')">${l}${cont[k]?` <span class="cont">${cont[k]}</span>`:''}</button>`).join('');
+
+  $('tf-resumo').innerHTML=`<span>Pendentes: <strong class="${pend.length?'c-warn':'c-ok'}">${pend.length}</strong></span>
+    <span>Concluídas: <strong class="c-ok">${feitas.length}</strong></span>`;
+
+  let lista = filtroTarefa==='pendentes' ? pend : filtroTarefa==='concluidas' ? feitas : todas;
+  lista=[...lista].sort((a,b)=>{
+    const fa=tarefaFeita(a)?1:0, fb=tarefaFeita(b)?1:0;
+    if(fa!==fb) return fa-fb;
+    return String(a.data).localeCompare(String(b.data)) || Number(a.seq||0)-Number(b.seq||0);
+  });
+
+  box.innerHTML = lista.length ? lista.map(t=>{
+    const ok=tarefaFeita(t);
+    const sub=ok&&t.data_conclusao?`concluída ${brDate(t.data_conclusao)}${t.concluida_por?' por '+esc(t.concluida_por):''}`:'';
+    return `<tr class="${ok?'tarefa-ok':''}">
+      <td class="tf-num">${esc(t.seq||'—')}</td>
+      <td class="chk"><input type="checkbox" ${ok?'checked':''} onchange="concluirTarefa('${t.id}',this.checked)"></td>
+      <td class="tf-data venc">${brDate(t.data)}</td>
+      <td class="tf-cell"><span class="tf-txt">${esc(t.descricao)}</span>
+        ${sub?`<div class="tf-sub">${sub}</div>`:''}</td>
+      <td class="tf-resp">${esc(t.responsavel||'—')}</td>
+      <td><div class="acoes">
+        <button class="btn btn-sm btn-ghost" onclick="abrirTarefa('${t.id}')" title="Alterar">✎</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirTarefa('${t.id}')" title="Excluir">×</button>
+      </div></td></tr>`;
+  }).join('')
+   : `<tr><td colspan="6" class="empty"><strong>${filtroTarefa==='concluidas'?'Nenhuma tarefa concluída':'Nenhuma tarefa'}</strong>Inclua a primeira no formulário acima.</td></tr>`;
+
+  const b=$('badge-tarefas');
+  if(b){ b.textContent=pend.length; b.classList.toggle('hidden',pend.length===0); }
+}
+function setFiltroTarefa(f){ filtroTarefa=f; renderTarefas(); }
+
+async function addTarefa(){
+  const data=$('tf-data').value||hoje();
+  const desc=$('tf-desc').value.trim();
+  const resp=$('tf-resp').value.trim();
+  const erro=$('tf-erro');
+  if(!desc){ erro.textContent='Escreva a tarefa antes de incluir.'; erro.classList.remove('hidden'); return; }
+  erro.classList.add('hidden');
+  load('Gravando');
+  try{
+    // seq fica em branco de propósito: quem numera é o servidor
+    await apiPost({action:'upsert',entity:'Tarefas',
+      record:{data,descricao:desc,responsavel:resp,concluida:false,excluida:false}});
+    $('tf-desc').value=''; $('tf-resp').value='';
+    toast('Tarefa incluída.','success');
+    await sync();
+    setTimeout(()=>$('tf-desc').focus(),100);
+  }catch(e){
+    const m=String(e.message||e);
+    erro.textContent=/Aba (desconhecida|não encontrada)/i.test(m)
+      ? 'NÃO GRAVOU. Republique o script: Implantar → Gerenciar implantações → lápis → Versão: Nova versão.'
+      : 'NÃO GRAVOU: '+m;
+    erro.classList.remove('hidden');
+  }finally{ unload(); }
+}
+
+async function concluirTarefa(id,marcada){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  load(marcada?'Concluindo':'Reabrindo');
+  const rec = marcada
+    ? {id,concluida:true,data_conclusao:hoje(),concluida_por:OPERADOR}
+    : {id,concluida:false,data_conclusao:'',concluida_por:''};
+  if(await push('Tarefas',rec)){
+    toast(marcada?'Tarefa concluída.':'Tarefa reaberta.','success'); await sync();
+  } else { renderTarefas(); }
+  unload();
+}
+
+function abrirTarefa(id){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  tarefaCtx={id};
+  $('tf-edit-sub').textContent=`Tarefa nº ${t.seq||'—'}`;
+  $('tf-e-data').value=String(t.data).slice(0,10);
+  $('tf-e-desc').value=t.descricao||'';
+  $('tf-e-resp').value=t.responsavel||'';
+  $('modal-tarefa').classList.remove('hidden');
+}
+async function salvarTarefa(){
+  if(!tarefaCtx) return;
+  const desc=$('tf-e-desc').value.trim();
+  if(!desc) return toast('A tarefa não pode ficar sem texto.','error');
+  closeModal('modal-tarefa'); load('Gravando');
+  if(await push('Tarefas',{id:tarefaCtx.id,data:$('tf-e-data').value,
+      descricao:desc,responsavel:$('tf-e-resp').value.trim()})){
+    toast('Tarefa alterada.','success'); await sync();
+  }
+  unload(); tarefaCtx=null;
+}
+async function excluirTarefa(id){
+  const t=(DB.Tarefas||[]).find(x=>x.id===id); if(!t) return;
+  if(!confirm(`Excluir a tarefa nº ${t.seq}?\n\n"${t.descricao}"\n\nEla some da lista, mas a linha fica guardada na planilha.`)) return;
+  load('Excluindo');
+  if(await push('Tarefas',{id,excluida:true})){ toast('Tarefa excluída.','success'); await sync(); }
+  unload();
+}
+
 function renderAnotacoes(){
   const box=$('lista-anotacoes'); if(!box) return;
   const lista=[...anotacoesVivas()].sort((a,b)=>{
@@ -2146,7 +2322,7 @@ async function testarLogin(){
 }
 function sair(){
   S.url=''; loaded=false;
-  DB={Contas:[],Categorias:[],Pessoas:[],Contatos:[],Anotacoes:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
+  DB={Contas:[],Categorias:[],Pessoas:[],Contatos:[],Anotacoes:[],Tarefas:[],Pagar:[],Receber:[],Movimentos:[],Log:[],Config:{}};
   render(); setStatus('off'); $('banner').classList.add('hidden'); $('login').classList.remove('hidden');
 }
 async function testar(){
@@ -2190,6 +2366,7 @@ document.querySelectorAll('.tab-link').forEach(b=>b.onclick=()=>{
 });
 $('script-box').textContent=$('gs-source').textContent;
 $('script-box2').textContent=$('gs-source').textContent;
+$('tf-data').value=hoje();
 $('login-url').value=URL_PADRAO;
 S.url=URL_PADRAO;
 if(URL_PADRAO) $('cfg-url2').value=URL_PADRAO;
